@@ -11,29 +11,66 @@ import Register from "./components/Register";
 import { idlFactory } from "../../.dfx/local/canisters/paychain_backend/paychain_backend.did.js";
 
 function App() {
-  const [greeting, setGreeting] = useState('');
+  const [authClient, setAuthClient] = useState(null);
+  const [balance, setBalance] = useState(0);
+  const [transactions, setTransactions] = useState([]);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [showLogin, setShowLogin] = useState(false);
+  const [showRegister, setShowRegister] = useState(false);
 
-  function handleSubmit(event) {
-    event.preventDefault();
-    const name = event.target.elements.name.value;
-    PayChain_backend.greet(name).then((greeting) => {
-      setGreeting(greeting);
+  useEffect(() => {
+    const initAuth = async () => {
+      const client = await AuthClient.create();
+      setAuthClient(client);
+    };
+    initAuth();
+  }, []);
+
+  const fetchData = async () => {
+    if (!authClient) return;
+
+    const agent = new HttpAgent({ identity: authClient.getIdentity() });
+    const paychainBackend = Actor.createActor(idlFactory, {
+      agent,
+      canisterId: "Our CANNISTER ID", 
     });
-    return false;
-  }
+
+    const balance = await paychainBackend.getBalance();
+    const transactions = await paychainBackend.getTransactions();
+    setBalance(balance);
+    setTransactions(transactions);
+  };
+
+  useEffect(() => {
+    if (authClient) fetchData();
+  }, [authClient]);
 
   return (
-    <main>
-      <img src="/logo2.svg" alt="DFINITY logo" />
-      <br />
-      <br />
-      <form action="#" onSubmit={handleSubmit}>
-        <label htmlFor="name">Enter your name: &nbsp;</label>
-        <input id="name" alt="Name" type="text" />
-        <button type="submit">Click Me!</button>
-      </form>
-      <section id="greeting">{greeting}</section>
-    </main>
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 1 }}>
+      <Navbar
+        authClient={authClient}
+        setAuthClient={setAuthClient}
+        setIsLoggedIn={setIsLoggedIn}
+        setShowLogin={setShowLogin}
+        setShowRegister={setShowRegister}
+      />
+      <AnimatePresence>
+        {showLogin && (
+          <Login
+            setShowLogin={setShowLogin}
+            setIsLoggedIn={setIsLoggedIn}
+            authClient={authClient}
+          />
+        )}
+        {showRegister && (
+          <Register
+            setShowRegister={setShowRegister}
+            authClient={authClient}
+          />
+        )}
+      </AnimatePresence>
+      {isLoggedIn && <Dashboard balance={balance} transactions={transactions} />}
+    </motion.div>
   );
 }
 
