@@ -8,8 +8,11 @@
       "dependencies": [
         "PayChain_backend"
       ],
+      "entrypoint": "src/PayChain_frontend/public/index.html",
       "source": [
-        "src/PayChain_frontend/dist"
+        "src/PayChain_frontend/dist",
+        "src/PayChain_frontend/public",
+        "src/PayChain_frontend/src"
       ],
       "type": "assets",
       "workspace": "PayChain_frontend"
