@@ -1,0 +1,26 @@
+{
+  "canisters": {
+    "PayChain_backend": {
+      "main": "src/PayChain_backend/main.mo",
+      "type": "motoko"
+    },
+    "PayChain_frontend": {
+      "dependencies": [
+        "PayChain_backend"
+      ],
+      "source": [
+        "src/PayChain_frontend/dist"
+      ],
+      "type": "assets",
+      "workspace": "PayChain_frontend"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}
