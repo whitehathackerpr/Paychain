@@ -1,5 +1,14 @@
 import { useState } from 'react';
 import { PayChain_backend } from 'declarations/PayChain_backend';
+import React, { useState, useEffect } from "react";
+import { AuthClient } from "@dfinity/auth-client";
+import { Actor, HttpAgent } from "@dfinity/agent";
+import { motion, AnimatePresence } from "framer-motion";
+import Navbar from "./components/Navbar";
+import Dashboard from "./components/Dashboard";
+import Login from "./components/Login";
+import Register from "./components/Register";
+import { idlFactory } from "../../.dfx/local/canisters/paychain_backend/paychain_backend.did.js";
 
 function App() {
   const [greeting, setGreeting] = useState('');

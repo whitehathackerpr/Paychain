@@ -14,5 +14,11 @@
   "type": "module",
   "workspaces": [
     "src/PayChain_frontend"
-  ]
+  ],
+  "dependencies": {
+    "autoprefixer": "^10.4.21",
+    "framer-motion": "^12.5.0",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^4.0.15"
+  }
 }
