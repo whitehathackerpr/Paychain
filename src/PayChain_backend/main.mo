@@ -11,6 +11,7 @@ import Result "mo:base/Result";
 import Hash "mo:base/Hash";
 import Blob "mo:base/Blob";
 import Text "mo:base/Text";
+import Nat "mo:base/Nat";
 
 // Types for the payment system
 type TransactionId = Nat;
@@ -411,11 +412,11 @@ type ActivityType = {
 };
 
 type ThreatIndicator = {
-    type = ThreatType;
-    severity = Float;
-    description = Text;
-    firstSeen = Timestamp;
-    lastSeen = Timestamp;
+    threatType: ThreatType;
+    severity: Float;
+    description: Text;
+    firstSeen: Timestamp;
+    lastSeen: Timestamp;
 };
 
 type ThreatType = {
@@ -518,10 +519,10 @@ type Schedule = {
 };
 
 type ScheduleInterval = {
-    type: IntervalType;
+    ScheduleIntervaltype: IntervalType;
     value: Nat;
     startTime: ?Nat; // Hour of day (0-23)
-    endTime: ?Nat; // Hour of day (0-23)
+    endTime: ?Nat;   // Hour of day (0-23)
 };
 
 type IntervalType = {
@@ -532,7 +533,7 @@ type IntervalType = {
 };
 
 type TemplateCondition = {
-    type: ConditionType;
+    TemplateConditiontype: ConditionType;
     value: Text;
     operator: Operator;
 };
@@ -588,12 +589,12 @@ type ResolutionStatus = {
 
 type ResolutionAttempt = {
     timestamp: Timestamp;
-    type: ResolutionType;
+    ResolutionAttempttype: ResolutionType;
     result: Text;
     success: Bool;
     details: ?Text;
 };
-
+actor {
 actor {
     // State variables
     private var nextTransactionId: TransactionId = 0;
@@ -617,9 +618,9 @@ actor {
             activeConnections = 0;
             systemLoad = 0.0;
             memoryUsage = 0.0;
-        };
+        }
         errorStats = {
-            totalErrors = 0;
+            totalErrors : 0;
             errorByCategory = [];
             recentErrors = [];
             errorRate = 0.0;
@@ -1600,7 +1601,7 @@ actor {
             case null {
                 #err("Transaction not found")
             };
-        }
+        };
     };
     
     // Schedule a transaction
@@ -1723,35 +1724,7 @@ actor {
     };
     
     // System health monitoring
-    private func updateSystemHealth() : async () {
-        let currentTime = Time.now();
-        let health = systemStats.systemHealth;
-        
-        // Update system health metrics
-        systemStats := {
-            totalTransactions = systemStats.totalTransactions;
-            totalUsers = systemStats.totalUsers;
-            totalNFTReceipts = systemStats.totalNFTReceipts;
-            totalVolume = systemStats.totalVolume;
-            lastUpdate = currentTime;
-            activeUsers = systemStats.activeUsers;
-            blockedUsers = systemStats.blockedUsers;
-            pendingKyc = systemStats.pendingKyc;
-            rejectedKyc = systemStats.rejectedKyc;
-            totalRefunds = systemStats.totalRefunds;
-            totalFraudulentTransactions = systemStats.totalFraudulentTransactions;
-            systemHealth = {
-                lastCheck = currentTime;
-                errorRate = systemStats.errorStats.errorRate;
-                averageResponseTime = 0; // TODO: Implement response time tracking
-                activeConnections = 0; // TODO: Implement connection tracking
-                systemLoad = 0.0; // TODO: Implement system load tracking
-                memoryUsage = 0.0; // TODO: Implement memory usage tracking
-            };
-            errorStats = systemStats.errorStats;
-            velocityStats = systemStats.velocityStats;
-        };
-    };
+    // Removed duplicate definition of updateSystemHealth to resolve the conflict.
     
     // Enhanced security functions
     public shared(msg) func addSecurityRule(rule: SecurityRule) : async Result.Result<Nat, Text> {
@@ -2454,7 +2427,8 @@ actor {
                 
                 // Check conditions
                 for (condition in template.conditions.vals()) {
-                    if (not await checkTemplateCondition(condition)) {
+                    let conditionResult = await checkTemplateCondition(condition);
+                    if (not conditionResult) {
                         return #err("Template conditions not met");
                     };
                 };
@@ -2477,7 +2451,7 @@ actor {
     
     // Implement template condition checking
     private func checkTemplateCondition(condition: TemplateCondition) : async Bool {
-        switch (condition.type) {
+        switch (condition.conditionType) {
             case (#Balance) {
                 let requiredBalance = Int.abs(Text.toInt(condition.value));
                 switch (userBalances.get(msg.caller)) {
@@ -2566,7 +2540,7 @@ actor {
         // Attempt automatic resolution
         let attempt: ResolutionAttempt = {
             timestamp = Time.now();
-            type = #Automatic;
+            resolutionType = #Automatic;
             result = "Initial attempt";
             success = false;
             details = null;
@@ -2876,79 +2850,7 @@ actor {
     };
 
     // Update handleError function to use error code mapping
-    private func handleError(
-        transactionId: TransactionId,
-        error: Text,
-        category: ErrorCategory,
-        stackTrace: ?Text
-    ) : async () {
-        let errorDetails: ErrorDetails = {
-            code = mapErrorCode(error, category);
-            category = category;
-            timestamp = Time.now();
-            stackTrace = stackTrace;
-            recoveryAttempted = false;
-            recoveryStatus = null;
-        };
-        
-        switch (transactions.get(transactionId)) {
-            case (?transaction) {
-                let updatedTransaction = {
-                    id = transaction.id;
-                    from = transaction.from;
-                    to = transaction.to;
-                    amount = transaction.amount;
-                    timestamp = transaction.timestamp;
-                    status = #Failed;
-                    nftReceiptId = transaction.nftReceiptId;
-                    errorMessage = ?error;
-                    description = transaction.description;
-                    category = transaction.category;
-                    tags = transaction.tags;
-                    metadata = transaction.metadata;
-                    refundStatus = transaction.refundStatus;
-                    velocity = transaction.velocity;
-                    geographicData = transaction.geographicData;
-                    signatures = transaction.signatures;
-                    scheduledFor = transaction.scheduledFor;
-                    templateId = transaction.templateId;
-                    errorDetails = ?errorDetails;
-                };
-                
-                transactions.put(transactionId, updatedTransaction);
-                
-                // Update system error stats
-                systemStats := {
-                    totalTransactions = systemStats.totalTransactions;
-                    totalUsers = systemStats.totalUsers;
-                    totalNFTReceipts = systemStats.totalNFTReceipts;
-                    totalVolume = systemStats.totalVolume;
-                    lastUpdate = Time.now();
-                    activeUsers = systemStats.activeUsers;
-                    blockedUsers = systemStats.blockedUsers;
-                    pendingKyc = systemStats.pendingKyc;
-                    rejectedKyc = systemStats.rejectedKyc;
-                    totalRefunds = systemStats.totalRefunds;
-                    totalFraudulentTransactions = systemStats.totalFraudulentTransactions;
-                    systemHealth = systemStats.systemHealth;
-                    errorStats = {
-                        totalErrors = systemStats.errorStats.totalErrors + 1;
-                        errorByCategory = Array.append(
-                            systemStats.errorStats.errorByCategory,
-                            [(category, 1)]
-                        );
-                        recentErrors = Array.append(
-                            systemStats.errorStats.recentErrors,
-                            [errorDetails]
-                        );
-                        errorRate = Float.fromInt(systemStats.errorStats.totalErrors + 1) / Float.fromInt(systemStats.totalTransactions);
-                    };
-                    velocityStats = systemStats.velocityStats;
-                };
-            };
-            case null {};
-        };
-    };
+    // Removed duplicate handleError function to resolve the conflict.
 
     // Update updateSystemHealth function to use new tracking functions
     private func updateSystemHealth() : async () {
@@ -2985,4 +2887,4 @@ actor {
             velocityStats = systemStats.velocityStats;
         };
     };
-}
+};
