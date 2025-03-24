@@ -56,6 +56,7 @@ export interface Transaction {
   category: string;
   tags: string[];
   metadata: Record<string, any>;
+  nftReceiptId?: number;
   error?: {
     code: number;
     message: string;
