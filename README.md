@@ -1,6 +1,6 @@
 # PayChain: The Future of Payments 💳🌍
 
-Welcome to **PayChain**, a decentralized, secure and user-friendly payment system built on the **Internet Computer Protocol (ICP)**. PayChain is designed to revolutionize the way the world handles financial transactions by offering a faster, cheaper and more sustainable alternative to traditional payment systems like PayPal. 
+Welcome to **PayChain**, a decentralized, secure and user-friendly payment system built on the **Internet Computer Protocol (ICP)**. PayChain is designed to revolutionize the way the world handles financial transactions by offering a faster, cheaper and more sustainable alternative to traditional payment systems like PayPal.
 
 With zero gas fees, instant cross-border payments, and AI-powered fraud detection, PayChain is not just a payment system—it’s a movement towards a more inclusive and eco-friendly financial ecosystem. Join us in shaping the future of payments!
 
