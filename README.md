@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # PayChain: The Future of Payments 💳🌍
 
 Welcome to **PayChain**, a decentralized, secure and user-friendly payment system built on the **Internet Computer Protocol (ICP)**. PayChain is designed to revolutionize the way the world handles financial transactions by offering a faster, cheaper and more sustainable alternative to traditional payment systems like PayPal.
@@ -204,3 +205,6 @@ For support:
 - Motoko Team
 - React Team
 - Material-UI Team
+=======
+# Paychain
+>>>>>>> 75c53fbd1e430c3cd55206cd5cb6782379b3df37
