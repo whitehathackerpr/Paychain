@@ -53,7 +53,7 @@ The original Motoko backend provides:
    docker-compose up
    ```
 3. Access the frontend at http://localhost:3000
-4. The API documentation is available at http://localhost:8000/docs
+4. The API documentation is available at http://localhost:8001/docs
 
 ### Manual Setup
 
