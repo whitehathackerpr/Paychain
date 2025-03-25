@@ -1,0 +1,30 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./src/PayChain_backend_python
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./src/PayChain_backend_python:/app
+    environment:
+      - DATABASE_URL=sqlite:///./paychain.db
+      - SECRET_KEY=paychain_secret_development_key_change_in_production
+      - ACCESS_TOKEN_EXPIRE_MINUTES=60
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build:
+      context: ./src/PayChain_frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./src/PayChain_frontend:/app
+      - /app/node_modules
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+    depends_on:
+      - backend 

@@ -1,32 +1,36 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Card, CardProps } from '@mui/material';
-import { motion } from 'framer-motion';
+import { motion, HTMLMotionProps } from 'framer-motion';
 
-interface AnimatedCardProps extends CardProps {
+type AnimatedCardProps = Omit<CardProps, keyof HTMLMotionProps<"div">> & {
   children: React.ReactNode;
   delay?: number;
-}
+  onError?: (error: Error) => void;
+};
 
-const MotionCard = motion(Card);
+const MotionCard = motion(Card) as typeof motion.div;
 
-export default function AnimatedCard({ children, delay = 0, ...props }: AnimatedCardProps) {
+export default function AnimatedCard({ children, delay = 0, onError, ...props }: AnimatedCardProps) {
+  useEffect(() => {
+    const handleError = (error: ErrorEvent) => {
+      console.error('Animation error:', error);
+      onError?.(error.error);
+    };
+
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, [onError]);
+
   return (
     <MotionCard
+      {...props}
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{
-        duration: 0.5,
+        duration: 0.3,
         delay,
-        ease: [0.4, 0, 0.2, 1],
       }}
-      whileHover={{
-        scale: 1.02,
-        transition: {
-          duration: 0.2,
-          ease: [0.4, 0, 0.2, 1],
-        },
-      }}
-      {...props}
+      whileHover={{ scale: 1.02 }}
     >
       {children}
     </MotionCard>

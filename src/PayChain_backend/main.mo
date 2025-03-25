@@ -12,6 +12,24 @@ import Hash "mo:base/Hash";
 import Blob "mo:base/Blob";
 import Text "mo:base/Text";
 import Nat "mo:base/Nat";
+import Float "mo:base/Float";
+import Int "mo:base/Int";
+
+// Buffer extensions
+module ExtendedBuffer = {
+    public func size<T>(buffer: Buffer.Buffer<T>) : Nat {
+        buffer.size()
+    };
+    
+    public func get<T>(buffer: Buffer.Buffer<T>, index: Nat) : ?T {
+        if (index >= buffer.size()) { null }
+        else { ?buffer.get(index) }
+    };
+    
+    public func add<T>(buffer: Buffer.Buffer<T>, element: T) {
+        buffer.add(element)
+    };
+};
 
 // Types for the payment system
 type TransactionId = Nat;
@@ -534,16 +552,17 @@ type IntervalType = {
 
 type TemplateCondition = {
     TemplateConditiontype: ConditionType;
-    value: Text;
     operator: Operator;
+    value: Text;
 };
 
 type ConditionType = {
-    #Balance;
+    #Amount;
+    #Frequency;
     #Time;
-    #RiskScore;
-    #KYCStatus;
-    #Custom;
+    #Category;
+    #Tag;
+    #Metadata;
 };
 
 type Operator = {
@@ -575,8 +594,8 @@ type ErrorResolution = {
 type ResolutionType = {
     #Automatic;
     #Manual;
-    #Hybrid;
     #Escalated;
+    #System;
 };
 
 type ResolutionStatus = {
@@ -588,17 +607,51 @@ type ResolutionStatus = {
 };
 
 type ResolutionAttempt = {
-    timestamp: Timestamp;
-    ResolutionAttempttype: ResolutionType;
+    resolutionType: ResolutionType;
+    details: ?Text;
     result: Text;
     success: Bool;
-    details: ?Text;
+    timestamp: Timestamp;
 };
-actor {
+
+type TransactionDetails = {
+    id: TransactionId;
+    sender: Principal;
+    recipient: Principal;
+    amount: Amount;
+    status: TransactionStatus;
+    timestamp: Timestamp;
+    metadata: ?Blob;
+    refundStatus: ?RefundStatus;
+    mlScore: ?MLScore;
+};
+
+type TransactionReceipt = {
+    id: TransactionId;
+    sender: Principal;
+    recipient: Principal;
+    amount: Amount;
+    status: TransactionStatus;
+    timestamp: Timestamp;
+    metadata: ?Blob;
+    refundStatus: ?RefundStatus;
+    mlScore: ?MLScore;
+    receiptHash: ?Blob;
+    verificationStatus: ?Bool;
+};
+
 actor {
     // State variables
     private var nextTransactionId: TransactionId = 0;
     private var nextNFTId: Nat = 0;
+    
+    // Helper functions
+    private func getCountryRiskScore(country: Text) : async Float {
+        // TODO: Implement actual country risk scoring
+        // For now, return a default low risk score
+        0.1
+    };
+    
     private var systemStats: SystemStats = {
         totalTransactions = 0;
         totalUsers = 0;
@@ -618,9 +671,9 @@ actor {
             activeConnections = 0;
             systemLoad = 0.0;
             memoryUsage = 0.0;
-        }
+        };
         errorStats = {
-            totalErrors : 0;
+            totalErrors = 0;
             errorByCategory = [];
             recentErrors = [];
             errorRate = 0.0;
@@ -670,8 +723,198 @@ actor {
     private let BLOCK_DURATION = 86_400_000_000_000; // 24 hours in nanoseconds
     private let KYC_EXPIRY = 31 * 86_400_000_000_000; // 31 days in nanoseconds
     
+    // Security functions
+    private func isSuspiciousIP(ip: Text) : async Bool {
+        switch (ipBlockList.get(ip)) {
+            case (?blockInfo) {
+                switch (blockInfo.expiresAt) {
+                    case (?expiry) { Time.now() < expiry };
+                    case null { true };
+                }
+            };
+            case null { false };
+        }
+    };
+    
+    private func hasUnusualPattern(user: Principal, amount: Amount) : async Bool {
+        switch (userBalances.get(user)) {
+            case (?balance) {
+                // Check if amount is significantly higher than average
+                if (amount > balance.behavior.averageTransactionAmount * 5) {
+                    return true;
+                };
+                
+                // Check if transaction frequency is unusually high
+                if (balance.behavior.transactionFrequency > MAX_DAILY_TRANSACTIONS) {
+                    return true;
+                };
+                
+                false
+            };
+            case null { false };
+        }
+    };
+    
+    // Required signatures constant
+    private let requiredSignatures: Nat = 2; // Default to 2 signatures required
+    
+    // Update system stats function
+    private func updateSystemStats(amount: Amount) : async () {
+        systemStats := {
+            totalTransactions = systemStats.totalTransactions + 1;
+            totalUsers = systemStats.totalUsers;
+            totalNFTReceipts = systemStats.totalNFTReceipts + 1;
+            totalVolume = systemStats.totalVolume + amount;
+            lastUpdate = Time.now();
+            activeUsers = systemStats.activeUsers;
+            blockedUsers = systemStats.blockedUsers;
+            pendingKyc = systemStats.pendingKyc;
+            rejectedKyc = systemStats.rejectedKyc;
+            totalRefunds = systemStats.totalRefunds;
+            totalFraudulentTransactions = systemStats.totalFraudulentTransactions;
+            systemHealth = systemStats.systemHealth;
+            errorStats = systemStats.errorStats;
+            velocityStats = systemStats.velocityStats;
+        };
+    };
+    
+    // Create NFT receipt function
+    private func createNFTReceipt(transaction: Transaction) : async NFTReceipt {
+        let receipt: NFTReceipt = {
+            id = nextNFTId;
+            transactionId = transaction.id;
+            metadata = {
+                amount = transaction.amount;
+                timestamp = transaction.timestamp;
+                from = transaction.from;
+                to = transaction.to;
+                description = transaction.description;
+                category = transaction.category;
+                tags = transaction.tags;
+                imageUrl = null;
+            };
+        };
+        
+        nftReceipts.put(nextNFTId, receipt);
+        nextNFTId += 1;
+        receipt
+    };
+    
+    // Update balances function
+    private func updateBalances(from: Principal, to: Principal, amount: Amount) : async Result.Result<(), Text> {
+        switch (userBalances.get(from)) {
+            case (?fromBalance) {
+                if (fromBalance.balance < amount) {
+                    return #err("Insufficient balance");
+                };
+                
+                let updatedFromBalance = {
+                    principal = fromBalance.principal;
+                    balance = fromBalance.balance - amount;
+                    transactions = Array.append(fromBalance.transactions, [nextTransactionId]);
+                    lastTransactionTimestamp = Time.now();
+                    totalTransactions = fromBalance.totalTransactions + 1;
+                    riskScore = fromBalance.riskScore;
+                    isBlocked = fromBalance.isBlocked;
+                    blockReason = fromBalance.blockReason;
+                    blockExpiry = fromBalance.blockExpiry;
+                    kycStatus = fromBalance.kycStatus;
+                    lastKycUpdate = fromBalance.lastKycUpdate;
+                    rateLimit = fromBalance.rateLimit;
+                    behavior = fromBalance.behavior;
+                    geographicData = fromBalance.geographicData;
+                    transactionLimits = fromBalance.transactionLimits;
+                };
+                
+                userBalances.put(from, updatedFromBalance);
+                
+                // Update recipient's balance
+                let toBalance = switch (userBalances.get(to)) {
+                    case (?balance) { balance };
+                    case null {
+                        {
+                            principal = to;
+                            balance = 0;
+                            transactions = [];
+                            lastTransactionTimestamp = Time.now();
+                            totalTransactions = 0;
+                            riskScore = 0;
+                            isBlocked = false;
+                            blockReason = null;
+                            blockExpiry = null;
+                            kycStatus = #NotVerified;
+                            lastKycUpdate = Time.now();
+                            rateLimit = {
+                                requestsPerMinute = 60;
+                                requestsPerHour = 1000;
+                                requestsPerDay = 10000;
+                                lastReset = Time.now();
+                                requestCount = 0;
+                            };
+                            behavior = {
+                                preferredCategories = [];
+                                typicalTransactionTimes = [];
+                                commonRecipients = [];
+                                averageTransactionAmount = 0;
+                                transactionFrequency = 0;
+                            };
+                            geographicData = {
+                                country = null;
+                                region = null;
+                                city = null;
+                                ipAddress = null;
+                                lastKnownLocation = null;
+                            };
+                            transactionLimits = {
+                                dailyLimit = MAX_DAILY_VOLUME;
+                                weeklyLimit = MAX_DAILY_VOLUME * 7;
+                                monthlyLimit = MAX_DAILY_VOLUME * 30;
+                                perTransactionLimit = MAX_TRANSACTION_AMOUNT;
+                                categoryLimits = [];
+                            };
+                        }
+                    };
+                };
+                
+                let updatedToBalance = {
+                    principal = toBalance.principal;
+                    balance = toBalance.balance + amount;
+                    transactions = Array.append(toBalance.transactions, [nextTransactionId]);
+                    lastTransactionTimestamp = Time.now();
+                    totalTransactions = toBalance.totalTransactions + 1;
+                    riskScore = toBalance.riskScore;
+                    isBlocked = toBalance.isBlocked;
+                    blockReason = toBalance.blockReason;
+                    blockExpiry = toBalance.blockExpiry;
+                    kycStatus = toBalance.kycStatus;
+                    lastKycUpdate = toBalance.lastKycUpdate;
+                    rateLimit = toBalance.rateLimit;
+                    behavior = toBalance.behavior;
+                    geographicData = toBalance.geographicData;
+                    transactionLimits = toBalance.transactionLimits;
+                };
+                
+                userBalances.put(to, updatedToBalance);
+                #ok()
+            };
+            case null {
+                #err("Sender account not found")
+            };
+        }
+    };
+    
     // Core payment processing function
-    public shared(msg) func processPayment(to: Principal, amount: Amount, description: ?Text, category: ?Text, tags: [Text], metadata: ?Blob) : async Result.Result<TransactionId, Text> {
+    public shared(msg) func processPayment(
+        to: Principal,
+        amount: Int,
+        description: ?Text,
+        category: ?Text,
+        tags: [Text],
+        metadata: ?Blob
+    ) : async Result.Result<TransactionId, Text> {
+        // Convert Int to Nat for amount
+        let natAmount = if (amount >= 0) { Int.abs(amount) } else { 0 };
+        
         let caller = msg.caller;
         
         // Check if user is blocked
@@ -681,7 +924,7 @@ actor {
         };
         
         // Validate amount
-        if (amount == 0) {
+        if (natAmount == 0) {
             return #err("Amount must be greater than 0");
         };
         
@@ -691,7 +934,7 @@ actor {
         };
         
         // Check fraud detection
-        switch (await checkFraudDetection(caller, amount)) {
+        switch (await checkFraudDetection(caller, natAmount)) {
             case (#ok()) {};
             case (#err(e)) {
                 await updateUserRiskScore(caller, 10); // Increase risk score
@@ -700,11 +943,14 @@ actor {
         };
         
         // Create transaction
+        let transactionId = nextTransactionId;
+        nextTransactionId += 1;
+        
         let transaction: Transaction = {
-            id = nextTransactionId;
+            id = transactionId;
             from = caller;
             to = to;
-            amount = amount;
+            amount = natAmount;
             timestamp = Time.now();
             status = #Pending;
             nftReceiptId = null;
@@ -723,11 +969,10 @@ actor {
         };
         
         // Update state
-        transactions.put(nextTransactionId, transaction);
-        nextTransactionId += 1;
+        transactions.put(transactionId, transaction);
         
         // Process the payment
-        switch (await updateBalances(caller, to, amount)) {
+        switch (await updateBalances(caller, to, natAmount)) {
             case (#ok()) {
                 // Create NFT receipt
                 let nftReceipt = await createNFTReceipt(transaction);
@@ -756,10 +1001,10 @@ actor {
                 };
                 
                 transactions.put(transaction.id, updatedTransaction);
-                await updateSystemStats(amount);
+                await updateSystemStats(natAmount);
                 await updateAnalytics(transaction);
                 await updateUserRiskScore(caller, -5); // Decrease risk score for successful transaction
-                #ok(transaction.id)
+                #ok(transactionId)
             };
             case (#err(e)) {
                 let failedTransaction = {
@@ -788,7 +1033,7 @@ actor {
                 await updateUserRiskScore(caller, 5); // Increase risk score for failed transaction
                 #err(e)
             };
-        };
+        }
     };
     
     // Check user status
@@ -838,10 +1083,10 @@ actor {
         switch (userBalances.get(user)) {
             case (?balance) {
                 let newScore = if (delta > 0) {
-                    Nat.min(balance.riskScore + Nat.abs(delta), MAX_RISK_SCORE)
+                    Nat.min(balance.riskScore + Int.abs(delta), MAX_RISK_SCORE)
                 } else {
-                    if (balance.riskScore > Nat.abs(delta)) {
-                        balance.riskScore - Nat.abs(delta)
+                    if (balance.riskScore > Int.abs(delta)) {
+                        balance.riskScore - Int.abs(delta)
                     } else {
                         0
                     }
@@ -895,8 +1140,20 @@ actor {
     
     // Update analytics data
     private func updateAnalytics(transaction: Transaction) : async () {
-        let currentData = if (Buffer.size(analyticsData) > 0) {
-            Buffer.get(analyticsData, Buffer.size(analyticsData) - 1)
+        let currentData = if (analyticsData.size() > 0) {
+            let lastIndex = analyticsData.size() - 1;
+            switch (analyticsData.getOpt(lastIndex)) {
+                case (?data) { data };
+                case null {
+                    {
+                        dailyVolume = [];
+                        userActivity = [];
+                        transactionCategories = [];
+                        fraudAttempts = [];
+                        kycStats = [];
+                    }
+                };
+            };
         } else {
             {
                 dailyVolume = [];
@@ -917,8 +1174,12 @@ actor {
         let newDailyVolume = switch (Array.size(updatedDailyVolume)) {
             case (0) { [(today, transaction.amount)] };
             case (_) {
-                let (_, currentAmount) = Array.get(updatedDailyVolume, 0);
-                [(today, currentAmount + transaction.amount)]
+                if (Array.size(updatedDailyVolume) > 0) {
+                    let (_, currentAmount) = updatedDailyVolume[0];
+                    [(today, currentAmount + transaction.amount)]
+                } else {
+                    [(today, transaction.amount)]
+                }
             };
         };
         
@@ -931,8 +1192,12 @@ actor {
         let newUserActivity = switch (Array.size(updatedUserActivity)) {
             case (0) { [(transaction.from, 1)] };
             case (_) {
-                let (_, count) = Array.get(updatedUserActivity, 0);
-                [(transaction.from, count + 1)]
+                if (Array.size(updatedUserActivity) > 0) {
+                    let (_, count) = updatedUserActivity[0];
+                    [(transaction.from, count + 1)]
+                } else {
+                    [(transaction.from, 1)]
+                }
             };
         };
         
@@ -952,8 +1217,12 @@ actor {
                 switch (Array.size(updatedCategories)) {
                     case (0) { [(cat, 1)] };
                     case (_) {
-                        let (_, count) = Array.get(updatedCategories, 0);
-                        [(cat, count + 1)]
+                        if (Array.size(updatedCategories) > 0) {
+                            let (_, count) = updatedCategories[0];
+                            [(cat, count + 1)]
+                        } else {
+                            [(cat, 1)]
+                        }
                     };
                 }
             };
@@ -971,8 +1240,12 @@ actor {
                 switch (Array.size(updatedFraudAttempts)) {
                     case (0) { [(today, 1)] };
                     case (_) {
-                        let (_, count) = Array.get(updatedFraudAttempts, 0);
-                        [(today, count + 1)]
+                        if (Array.size(updatedFraudAttempts) > 0) {
+                            let (_, count) = updatedFraudAttempts[0];
+                            [(today, count + 1)]
+                        } else {
+                            [(today, 1)]
+                        }
                     };
                 }
             };
@@ -995,8 +1268,12 @@ actor {
                 switch (Array.size(updatedKycStats)) {
                     case (0) { [(balance.kycStatus, 1)] };
                     case (_) {
-                        let (_, count) = Array.get(updatedKycStats, 0);
-                        [(balance.kycStatus, count + 1)]
+                        if (Array.size(updatedKycStats) > 0) {
+                            let (_, count) = updatedKycStats[0];
+                            [(balance.kycStatus, count + 1)]
+                        } else {
+                            [(balance.kycStatus, 1)]
+                        }
                     };
                 }
             };
@@ -1011,13 +1288,11 @@ actor {
             fraudAttempts = newFraudAttempts;
             kycStats = newKycStats;
         };
-        
-        if (Buffer.size(analyticsData) >= 30) {
-            Buffer.removeLast(analyticsData);
+        if (analyticsData.size() >= 30) {
+            ignore analyticsData.removeLast();
         };
-        Buffer.add(analyticsData, newData);
+        analyticsData.add(newData);
     };
-    
     // Request refund
     public shared(msg) func requestRefund(transactionId: TransactionId, reason: Text) : async Result.Result<(), Text> {
         let caller = msg.caller;
@@ -1347,23 +1622,37 @@ actor {
     // New query functions
     public query func getAnalyticsData(days: ?Nat) : async AnalyticsData {
         let requestedDays = switch (days) {
-            case (?d) { Nat.min(d, Buffer.size(analyticsData)) };
-            case null { Buffer.size(analyticsData) };
+            case (?d) { Nat.min(d, analyticsData.size()) };
+            case null { analyticsData.size() };
         };
         
-        let startIndex = if (Buffer.size(analyticsData) > requestedDays) {
-            Buffer.size(analyticsData) - requestedDays
+        let startIndex = if (analyticsData.size() > requestedDays) {
+            analyticsData.size() - requestedDays
         } else {
             0
         };
         
         let result = Buffer.Buffer<AnalyticsData>(requestedDays);
-        for (i in Iter.range(startIndex, Buffer.size(analyticsData) - 1)) {
-            Buffer.add(result, Buffer.get(analyticsData, i));
+        var i = startIndex;
+        while (i < analyticsData.size()) {
+            switch (analyticsData.getOpt(i)) {
+                case (?data) { result.add(data) };
+                case null {};
+            };
+            i += 1;
         };
         
         {
-            dailyVolume = Buffer.toArray(result);
+            dailyVolume = Array.map<AnalyticsData, (Timestamp, Amount)>(
+                Buffer.toArray(result),
+                func(data) { 
+                    (Time.now(), Array.foldLeft<(Timestamp, Amount), Amount>(
+                        data.dailyVolume, 
+                        0, 
+                        func(acc, (_, amount)) { acc + amount }
+                    ))
+                }
+            );
             userActivity = [];
             transactionCategories = [];
             fraudAttempts = [];
@@ -1375,20 +1664,20 @@ actor {
         let refundRequests = Buffer.Buffer<(TransactionId, Transaction)>(0);
         for ((id, tx) in transactions.entries()) {
             if (tx.status == #Pending and tx.refundStatus == ?#Pending) {
-                Buffer.add(refundRequests, (id, tx));
+                refundRequests.add((id, tx));
             };
         };
-        Buffer.toArray(refundRequests)
+        refundRequests.toArray()
     };
     
     public query func getPendingTransactions() : async [(TransactionId, Transaction)] {
         let pendingTransactions = Buffer.Buffer<(TransactionId, Transaction)>(0);
         for ((id, tx) in transactions.entries()) {
             if (tx.status == #Pending) {
-                Buffer.add(pendingTransactions, (id, tx));
+                pendingTransactions.add((id, tx));
             };
         };
-        Buffer.toArray(pendingTransactions)
+        pendingTransactions.toArray()
     };
     
     // Rate limiting functions
@@ -1593,7 +1882,14 @@ actor {
                 
                 // Process transaction if we have enough signatures
                 if (Array.size(updatedTransaction.signatures) >= requiredSignatures) {
-                    await processPayment(to, amount, description, category, tags, metadata);
+                    await processPaymentWithResult(
+                        transaction.to,
+                        transaction.amount,
+                        transaction.description,
+                        transaction.category,
+                        transaction.tags,
+                        transaction.metadata
+                    );
                 };
                 
                 #ok()
@@ -1770,14 +2066,14 @@ actor {
         let transactions = Buffer.Buffer<Transaction>(0);
         
         // Collect transactions within the time period
-        for ((_, tx) in transactions.entries()) {
+        for (tx in transactions.vals()) {
             if (tx.timestamp >= startTime and tx.timestamp <= endTime) {
-                Buffer.add(transactions, tx);
+                transactions.add(tx);
             };
         };
         
         // Calculate metrics
-        let totalTransactions = Buffer.size(transactions);
+        let totalTransactions = transactions.size();
         let totalVolume = Array.foldLeft<Transaction, Amount>(
             Buffer.toArray(transactions),
             0,
@@ -1847,7 +2143,7 @@ actor {
         // Calculate time distribution
         let timeCounts = HashMap.HashMap<Nat, Nat>(0, Nat.equal, Hash.hash);
         for (tx in Buffer.toArray(transactions).vals()) {
-            let hour = (tx.timestamp / 3_600_000_000_000) % 24;
+            let hour = Int.abs((tx.timestamp / 3_600_000_000_000) % 24);
             let current = switch (timeCounts.get(hour)) {
                 case (?count) { count };
                 case null { 0 };
@@ -2120,27 +2416,33 @@ actor {
         
         // Combine risk factors
         if (Option.isSome(velocityRisk)) {
-            Buffer.add(riskFactors, Option.unwrap(velocityRisk));
+            switch (Option.unwrap(velocityRisk)) {
+                case (risk) { riskFactors.add(risk) };
+            };
         };
-        Buffer.add(riskFactors, amountRisk);
+        riskFactors.add(amountRisk);
         if (Option.isSome(geoRisk)) {
-            Buffer.add(riskFactors, Option.unwrap(geoRisk));
+            switch (Option.unwrap(geoRisk)) {
+                case (risk) { riskFactors.add(risk) };
+            };
         };
         if (Option.isSome(behaviorRisk)) {
-            Buffer.add(riskFactors, Option.unwrap(behaviorRisk));
+            switch (Option.unwrap(behaviorRisk)) {
+                case (risk) { riskFactors.add(risk) };
+            };
         };
         
         // Calculate final score
         let totalScore = Array.foldLeft<RiskFactor, Float>(
-            Buffer.toArray(riskFactors),
+            riskFactors.toArray(),
             0.0,
             func(acc, factor) { acc + (factor.score * factor.weight) }
         );
         
         {
             fraudProbability = totalScore;
-            riskFactors = Buffer.toArray(riskFactors);
-            confidence = calculateMLConfidence(riskFactors);
+            riskFactors = riskFactors.toArray();
+            confidence = calculateMLConfidence(riskFactors.toArray());
             lastUpdated = Time.now();
         }
     };
@@ -2230,10 +2532,10 @@ actor {
             marketTrends = marketTrends;
         };
         
-        if (Buffer.size(predictiveAnalytics) >= 30) {
-            Buffer.removeLast(predictiveAnalytics);
+        if (predictiveAnalytics.size() >= 30) {
+            ignore predictiveAnalytics.removeLast();
         };
-        Buffer.add(predictiveAnalytics, analytics);
+        predictiveAnalytics.add(analytics);
     };
     
     private func generateTransactionForecast() : async [TransactionForecast] {
@@ -2259,10 +2561,10 @@ actor {
                 factors = factors;
             };
             
-            Buffer.add(forecast, hourlyForecast);
+            forecast.add(hourlyForecast);
         };
         
-        Buffer.toArray(forecast)
+        forecast.toArray()
     };
     
     // Implement volume prediction based on historical data
@@ -2270,27 +2572,27 @@ actor {
         let historicalData = Buffer.Buffer<Amount>(30);
         
         // Collect historical data for the same hour over the last 30 days
-        for (i in Iter.range(0, Buffer.size(analyticsData) - 1)) {
-            let data = Buffer.get(analyticsData, i);
+        for (i in Iter.range(0, getBufferSize(analyticsData) - 1)) {
+            let data = analyticsData.get(i);
             for ((timestamp, amount) in data.dailyVolume.vals()) {
                 let dataHour = (timestamp / 3_600_000_000_000) % 24;
                 if (dataHour == hour) {
-                    Buffer.add(historicalData, amount);
+                    historicalData.add(amount);
                 };
             };
         };
         
-        if (Buffer.size(historicalData) == 0) {
+        if (getBufferSize(historicalData) == 0) {
             return 0;
         };
         
         // Calculate weighted average with more recent data having higher weight
-        let totalWeight = Float.fromInt(Buffer.size(historicalData) * (Buffer.size(historicalData) + 1)) / 2.0;
+        let totalWeight = Float.fromInt(getBufferSize(historicalData) * (getBufferSize(historicalData) + 1)) / 2.0;
         let weightedSum = Array.foldLeft<Amount, Float>(
-            Buffer.toArray(historicalData),
+            historicalData.toArray(),
             0.0,
             func(acc, amount) {
-                let weight = Float.fromInt(Array.size(historicalData) - Array.size(historicalData) + 1);
+                let weight = Float.fromInt(getBufferSize(historicalData) - getBufferSize(historicalData) + 1);
                 acc + (Float.fromInt(amount) * weight)
             }
         );
@@ -2303,32 +2605,32 @@ actor {
         let historicalForecasts = Buffer.Buffer<TransactionForecast>(30);
         
         // Collect historical forecasts for the same hour
-        for (i in Iter.range(0, Buffer.size(predictiveAnalytics) - 1)) {
-            let analytics = Buffer.get(predictiveAnalytics, i);
+        for (i in Iter.range(0, getBufferSize(predictiveAnalytics) - 1)) {
+            let analytics = predictiveAnalytics.get(i);
             for (forecast in analytics.transactionForecast.vals()) {
                 let forecastHour = (forecast.timestamp / 3_600_000_000_000) % 24;
                 if (forecastHour == hour) {
-                    Buffer.add(historicalForecasts, forecast);
+                    historicalForecasts.add(forecast);
                 };
             };
         };
         
-        if (Buffer.size(historicalForecasts) == 0) {
+        if (getBufferSize(historicalForecasts) == 0) {
             return 0.5; // Default confidence for new predictions
         };
         
         // Calculate accuracy based on historical predictions
         let accuracy = Array.foldLeft<TransactionForecast, Float>(
-            Buffer.toArray(historicalForecasts),
+            historicalForecasts.toArray(),
             0.0,
             func(acc, forecast) {
                 acc + forecast.confidence
             }
-        ) / Float.fromInt(Buffer.size(historicalForecasts));
+        ) / Float.fromInt(getBufferSize(historicalForecasts));
         
         // Adjust confidence based on number of historical predictions
         let sampleSizeFactor = Float.min(
-            Float.fromInt(Buffer.size(historicalForecasts)) / 30.0,
+            Float.fromInt(getBufferSize(historicalForecasts)) / 30.0,
             1.0
         );
         
@@ -2345,7 +2647,7 @@ actor {
             impact = if (hour >= 9 and hour <= 17) { 1.2 } else { 0.8 };
             trend = if (hour >= 9 and hour <= 17) { #Up } else { #Down };
         };
-        Buffer.add(factors, timeFactor);
+        factors.add(timeFactor);
         
         // Historical volume factor
         let historicalVolume = await calculateExpectedVolume(hour);
@@ -2354,7 +2656,7 @@ actor {
             impact = Float.fromInt(historicalVolume) / 1_000_000.0;
             trend = if (historicalVolume > 500_000) { #Up } else { #Down };
         };
-        Buffer.add(factors, volumeFactor);
+        factors.add(volumeFactor);
         
         // Risk level factor
         let riskFactor = {
@@ -2362,7 +2664,7 @@ actor {
             impact = systemStats.errorStats.errorRate;
             trend = if (systemStats.errorStats.errorRate > 0.1) { #Down } else { #Up };
         };
-        Buffer.add(factors, riskFactor);
+        factors.add(riskFactor);
         
         // User activity factor
         let userActivityFactor = {
@@ -2370,9 +2672,9 @@ actor {
             impact = Float.fromInt(systemStats.activeUsers) / 1000.0;
             trend = if (systemStats.activeUsers > 500) { #Up } else { #Stable };
         };
-        Buffer.add(factors, userActivityFactor);
+        factors.add(userActivityFactor);
         
-        Buffer.toArray(factors)
+        factors.toArray()
     };
     
     // Enhanced transaction management functions
@@ -2427,7 +2729,7 @@ actor {
                 
                 // Check conditions
                 for (condition in template.conditions.vals()) {
-                    let conditionResult = await checkTemplateCondition(condition);
+                    let conditionResult = await checkTemplateCondition(condition, caller);
                     if (not conditionResult) {
                         return #err("Template conditions not met");
                     };
@@ -2450,18 +2752,40 @@ actor {
     };
     
     // Implement template condition checking
-    private func checkTemplateCondition(condition: TemplateCondition) : async Bool {
-        switch (condition.conditionType) {
-            case (#Balance) {
-                let requiredBalance = Int.abs(Text.toInt(condition.value));
-                switch (userBalances.get(msg.caller)) {
+    private func checkTemplateCondition(condition: TemplateCondition, caller: Principal) : async Bool {
+        let conditionType = condition.TemplateConditiontype;
+        switch (conditionType) {
+            case (#Amount) {
+                let requiredAmount = switch (Nat.fromText(condition.value)) {
+                    case (?n) { Int.abs(n) };
+                    case null { 0 };
+                };
+                switch (userBalances.get(caller)) {
                     case (?balance) {
                         switch (condition.operator) {
-                            case (#Equals) { balance.balance == requiredBalance };
-                            case (#NotEquals) { balance.balance != requiredBalance };
-                            case (#GreaterThan) { balance.balance > requiredBalance };
-                            case (#LessThan) { balance.balance < requiredBalance };
-                            case (#Contains) { false }; // Not applicable for balance
+                            case (#Equals) { balance.balance == requiredAmount };
+                            case (#NotEquals) { balance.balance != requiredAmount };
+                            case (#GreaterThan) { balance.balance > requiredAmount };
+                            case (#LessThan) { balance.balance < requiredAmount };
+                            case (#Contains) { false }; // Not applicable for amount
+                        }
+                    };
+                    case null { false };
+                }
+            };
+            case (#Frequency) {
+                let requiredFrequency = switch (Nat.fromText(condition.value)) {
+                    case (?n) { Int.abs(n) };
+                    case null { 0 };
+                };
+                switch (userBalances.get(caller)) {
+                    case (?balance) {
+                        switch (condition.operator) {
+                            case (#Equals) { balance.behavior.transactionFrequency == requiredFrequency };
+                            case (#NotEquals) { balance.behavior.transactionFrequency != requiredFrequency };
+                            case (#GreaterThan) { balance.behavior.transactionFrequency > requiredFrequency };
+                            case (#LessThan) { balance.behavior.transactionFrequency < requiredFrequency };
+                            case (#Contains) { false }; // Not applicable for frequency
                         }
                     };
                     case null { false };
@@ -2469,7 +2793,10 @@ actor {
             };
             case (#Time) {
                 let currentHour = (Time.now() / 3_600_000_000_000) % 24;
-                let requiredHour = Int.abs(Text.toInt(condition.value));
+                let requiredHour = switch (Nat.fromText(condition.value)) {
+                    case (?n) { Int.abs(n) };
+                    case null { 0 };
+                };
                 switch (condition.operator) {
                     case (#Equals) { currentHour == requiredHour };
                     case (#NotEquals) { currentHour != requiredHour };
@@ -2478,46 +2805,50 @@ actor {
                     case (#Contains) { false }; // Not applicable for time
                 }
             };
-            case (#RiskScore) {
-                let requiredScore = Int.abs(Text.toInt(condition.value));
-                switch (userBalances.get(msg.caller)) {
+            case (#Category) {
+                let requiredCategory = condition.value;
+                switch (userBalances.get(caller)) {
                     case (?balance) {
                         switch (condition.operator) {
-                            case (#Equals) { balance.riskScore == requiredScore };
-                            case (#NotEquals) { balance.riskScore != requiredScore };
-                            case (#GreaterThan) { balance.riskScore > requiredScore };
-                            case (#LessThan) { balance.riskScore < requiredScore };
-                            case (#Contains) { false }; // Not applicable for risk score
+                            case (#Equals) { Array.find<Text>(balance.behavior.preferredCategories, func(cat) { cat == requiredCategory }) != null };
+                            case (#NotEquals) { Array.find<Text>(balance.behavior.preferredCategories, func(cat) { cat == requiredCategory }) == null };
+                            case (#GreaterThan) { false }; // Not applicable for category
+                            case (#LessThan) { false }; // Not applicable for category
+                            case (#Contains) { false }; // Not applicable for category
                         }
                     };
                     case null { false };
                 }
             };
-            case (#KYCStatus) {
-                switch (userBalances.get(msg.caller)) {
+            case (#Tag) {
+                let requiredTag = condition.value;
+                switch (userBalances.get(caller)) {
                     case (?balance) {
-                        let statusMatches = switch (condition.value) {
-                            case ("NotVerified") { balance.kycStatus == #NotVerified };
-                            case ("Pending") { balance.kycStatus == #Pending };
-                            case ("Verified") { balance.kycStatus == #Verified };
-                            case ("Rejected") { balance.kycStatus == #Rejected };
-                            case (_) { false };
-                        };
                         switch (condition.operator) {
-                            case (#Equals) { statusMatches };
-                            case (#NotEquals) { not statusMatches };
-                            case (#GreaterThan) { false }; // Not applicable for KYC status
-                            case (#LessThan) { false }; // Not applicable for KYC status
-                            case (#Contains) { false }; // Not applicable for KYC status
+                            case (#Equals) { Array.find<Text>(balance.behavior.preferredCategories, func(tag) { tag == requiredTag }) != null };
+                            case (#NotEquals) { Array.find<Text>(balance.behavior.preferredCategories, func(tag) { tag == requiredTag }) == null };
+                            case (#GreaterThan) { false }; // Not applicable for tag
+                            case (#LessThan) { false }; // Not applicable for tag
+                            case (#Contains) { false }; // Not applicable for tag
                         }
                     };
                     case null { false };
                 }
             };
-            case (#Custom) {
-                // Custom conditions can be implemented based on specific requirements
-                // For now, we'll return true to allow custom conditions
-                true
+            case (#Metadata) {
+                let requiredMetadata = condition.value;
+                switch (userBalances.get(caller)) {
+                    case (?balance) {
+                        switch (condition.operator) {
+                            case (#Equals) { balance.metadata == ?Blob.fromText(requiredMetadata) };
+                            case (#NotEquals) { balance.metadata != ?Blob.fromText(requiredMetadata) };
+                            case (#GreaterThan) { false }; // Not applicable for metadata
+                            case (#LessThan) { false }; // Not applicable for metadata
+                            case (#Contains) { false }; // Not applicable for metadata
+                        }
+                    };
+                    case null { false };
+                }
             };
         }
     };
@@ -2615,7 +2946,7 @@ actor {
                         )) {
                             case (#ok(_)) { #ok() };
                             case (#err(e)) { #err(e) };
-                        }
+                        };
                     };
                     case (#RollbackTransaction) {
                         // Get the failed transaction
@@ -2628,7 +2959,7 @@ actor {
                         switch (await updateBalances(failedTx.to, failedTx.from, failedTx.amount)) {
                             case (#ok()) { #ok() };
                             case (#err(e)) { #err(e) };
-                        }
+                        };
                     };
                     case (#NotifyUser) {
                         // In a real implementation, this would send a notification to the user
@@ -2744,7 +3075,7 @@ actor {
             systemHealth = {
                 lastCheck = systemStats.systemHealth.lastCheck;
                 errorRate = systemStats.systemHealth.errorRate;
-                averageResponseTime = (systemStats.systemHealth.averageResponseTime + responseTime) / 2;
+                averageResponseTime = Nat.abs((systemStats.systemHealth.averageResponseTime + responseTime) / 2);
                 activeConnections = systemStats.systemHealth.activeConnections;
                 systemLoad = systemStats.systemHealth.systemLoad;
                 memoryUsage = systemStats.systemHealth.memoryUsage;
@@ -2885,6 +3216,143 @@ actor {
             };
             errorStats = systemStats.errorStats;
             velocityStats = systemStats.velocityStats;
+        };
+    };
+
+    
+
+    private func getTransactionById(id: TransactionId) : async ?Transaction {
+        transactions.get(id)
+    };
+
+    private func getTransactionStatus(id: TransactionId) : async ?TransactionStatus {
+        switch (transactions.get(id)) {
+            case (?tx) { ?tx.status };
+            case null { null };
+        }
+    };
+
+    private func getTransactionDetails(id: TransactionId) : async ?TransactionDetails {
+        switch (transactions.get(id)) {
+            case (?tx) {
+                ?{
+                    id = id;
+                    sender = tx.from;
+                    recipient = tx.to;
+                    amount = tx.amount;
+                    status = tx.status;
+                    timestamp = tx.timestamp;
+                    metadata = tx.metadata;
+                    refundStatus = tx.refundStatus;
+                    mlScore = tx.mlScore;
+                }
+            };
+            case null { null };
+        }
+    };
+
+    private func getTransactionReceipt(id: TransactionId) : async ?TransactionReceipt {
+        switch (transactions.get(id)) {
+            case (?tx) {
+                ?{
+                    id = id;
+                    sender = tx.from;
+                    recipient = tx.to;
+                    amount = tx.amount;
+                    status = tx.status;
+                    timestamp = tx.timestamp;
+                    metadata = tx.metadata;
+                    refundStatus = tx.refundStatus;
+                    mlScore = tx.mlScore;
+                    receiptHash = tx.receiptHash;
+                    verificationStatus = tx.verificationStatus;
+                }
+            };
+            case null { null };
+        }
+    };
+
+    private func calculateReputationScore(activityHistory: [IPActivity]) : Float {
+        let totalScore = Array.foldLeft<IPActivity, Float>(
+            activityHistory,
+            0.0,
+            func(acc, activity) { acc + activity.riskScore }
+        );
+        totalScore / Float.fromInt(Array.size(activityHistory))
+    };
+
+    private func calculateRiskLevel(score: Float) : RiskLevel {
+        if (score >= 0.8) { #Critical }
+        else if (score >= 0.6) { #High }
+        else if (score >= 0.4) { #Medium }
+        else { #Low }
+    };
+
+    private func generateRiskPredictions() : async [RiskPrediction] {
+        let predictions = Buffer.Buffer<RiskPrediction>(24);
+        let currentTime = Time.now();
+        
+        for (hour in Iter.range(0, 23)) {
+            let timestamp = currentTime + Int.abs(hour * 3_600_000_000_000);
+            let riskLevel = #Low; // Default risk level
+            let probability = 0.1; // Default probability
+            
+            predictions.add({
+                timestamp = timestamp;
+                riskLevel = riskLevel;
+                probability = probability;
+                contributingFactors = [];
+            });
+        };
+        
+        predictions.toArray()
+    };
+
+    private func analyzeBehaviorPatterns() : async [BehaviorPattern] {
+        let patterns = Buffer.Buffer<BehaviorPattern>(0);
+        patterns.add({
+            patternType = #Regular;
+            confidence = 0.8;
+            frequency = 1;
+            lastOccurrence = Time.now();
+            details = "Regular transaction pattern";
+        });
+        patterns.toArray()
+    };
+
+    private func analyzeMarketTrends() : async [MarketTrend] {
+        let trends = Buffer.Buffer<MarketTrend>(0);
+        trends.add({
+            period = "daily";
+            trend = #Stable;
+            magnitude = 0.0;
+            confidence = 0.8;
+            indicators = [];
+        });
+        trends.toArray()
+    };
+
+    // Fix Buffer size calls
+    private func getBufferSize<T>(buffer: Buffer.Buffer<T>) : Nat {
+        buffer.size()
+    };
+
+    private func addToBuffer<T>(buffer: Buffer.Buffer<T>, element: T) {
+        buffer.add(element)
+    };
+
+    // Fix the processPayment call in signTransaction
+    private func processPaymentWithResult(
+        to: Principal,
+        amount: Amount,
+        description: ?Text,
+        category: ?Text,
+        tags: [Text],
+        metadata: ?Blob
+    ) : async () {
+        switch (await processPayment(to, amount, description, category, tags, metadata)) {
+            case (#ok(_)) {};
+            case (#err(e)) { Debug.trap(e) };
         };
     };
 };

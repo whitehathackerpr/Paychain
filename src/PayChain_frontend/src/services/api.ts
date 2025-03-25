@@ -3,9 +3,11 @@ import { API_ENDPOINTS } from '../constants';
 import type {
   SystemStats,
   Transaction,
+  TransactionStatus,
+  UserBalance,
   UserSecurity,
   AnalyticsData,
-  Error as PayChainError,
+  PayChainError,
   ApiResponse,
   PaginatedResponse,
   TransactionFilter,

@@ -1,11 +1,5 @@
 import { Principal } from '@dfinity/principal';
-
-// Define a generic Principal type that matches both versions
-export interface GenericPrincipal {
-  raw: Uint8Array;
-  toText(): string;
-  toBlob(): Uint8Array;
-}
+import { GenericPrincipal as IGenericPrincipal } from '../utils/principal';
 
 // System Types
 export interface SystemHealth {
@@ -46,29 +40,32 @@ export interface SystemStats {
 }
 
 // Transaction Types
+export type TransactionStatus = 'completed' | 'failed' | 'fraudulent' | 'pending';
+
 export interface Transaction {
   id: string;
-  from: GenericPrincipal;
-  to: GenericPrincipal;
+  from: IGenericPrincipal;
+  to: IGenericPrincipal;
   amount: number;
-  status: 'pending' | 'completed' | 'failed' | 'cancelled' | 'fraudulent';
-  timestamp: number;
-  category: string;
-  tags: string[];
-  metadata: Record<string, any>;
+  timestamp: bigint;
+  status: TransactionStatus;
   nftReceiptId?: number;
-  error?: {
-    code: number;
-    message: string;
-    category: string;
-  };
+  category?: string;
+  tags?: string[];
+  metadata?: any;
+}
+
+export interface UserBalance {
+  principal: Principal;
+  balance: number;
+  lastUpdate: bigint;
 }
 
 export interface TransactionStats {
+  totalTransactions: number;
   totalVolume: number;
-  successRate: number;
   averageAmount: number;
-  categoryDistribution: Record<string, number>;
+  successRate: number;
 }
 
 // Security Types
@@ -179,16 +176,17 @@ export interface ErrorStats {
 
 // API Response Types
 export interface ApiResponse<T> {
+  success: boolean;
   data: T;
-  status: number;
-  message?: string;
+  error?: string;
 }
 
 export interface PaginatedResponse<T> {
-  data: T[];
+  items: T[];
   total: number;
   page: number;
   pageSize: number;
+  totalPages: number;
 }
 
 // Filter Types
@@ -237,16 +235,17 @@ export interface ErrorFilter {
 
 export interface NFTReceipt {
   id: number;
-  transactionId: number;
-  metadata: {
-    amount: number;
-    timestamp: bigint;
-    from: string;
-    to: string;
-  };
+  transactionId: string;
+  metadata: any;
+  owner: string;
+  imageUrl: string;
+  createdAt?: number;
 }
 
-export type Result<T, E> = { ok: T } | { err: E };
+export interface Result<T, E> {
+  ok?: T;
+  err?: E;
+}
 
 export interface PayChainState {
   balance: number | null;
@@ -255,6 +254,6 @@ export interface PayChainState {
   error: string | null;
   fetchBalance: () => Promise<void>;
   fetchRecentTransactions: () => Promise<void>;
-  processPayment: (to: GenericPrincipal, amount: number) => Promise<Result<number, string>>;
+  processPayment: (to: IGenericPrincipal, amount: number) => Promise<Result<number, string>>;
   getNFTReceipt: (id: number) => Promise<NFTReceipt | null>;
 } 

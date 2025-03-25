@@ -1,118 +1,178 @@
 import React, { useState } from 'react';
 import {
-  Card,
-  CardContent,
+  Box,
+  Typography,
   TextField,
   Button,
-  Typography,
-  Box,
+  CardContent,
   Alert,
   CircularProgress,
+  Card,
+  Grid,
 } from '@mui/material';
-import { Formik, Form, Field } from 'formik';
+import { Formik, FormikProps } from 'formik';
 import * as Yup from 'yup';
 import { usePayChainStore } from '../store/paychainStore';
 import { createGenericPrincipal } from '../utils/principal';
+import AnimatedCard from '../components/AnimatedCard';
+import { useFormik } from 'formik';
+import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+
+interface PaymentFormValues {
+  recipientAddress: string;
+  amount: string;
+  description: string;
+}
 
 const validationSchema = Yup.object({
   recipientAddress: Yup.string()
     .required('Recipient address is required')
-    .matches(/^[a-zA-Z0-9-]+$/, 'Invalid principal ID format'),
+    .min(5, 'Enter a valid address'),
   amount: Yup.number()
     .required('Amount is required')
     .positive('Amount must be positive')
     .typeError('Amount must be a number'),
+  description: Yup.string()
+    .max(100, 'Description cannot exceed 100 characters'),
 });
 
 export default function Payment() {
-  const { processPayment, loading, error } = usePayChainStore();
   const [success, setSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const { sendPayment } = usePayChainStore();
+  const navigate = useNavigate();
 
-  const handleSubmit = async (values: { recipientAddress: string; amount: string }) => {
-    setSuccess(false);
-
-    try {
-      const genericPrincipal = createGenericPrincipal(values.recipientAddress);
-      const amountValue = Number(values.amount);
-
-      const result = await processPayment(genericPrincipal, amountValue);
-      if ('ok' in result) {
-        setSuccess(true);
-      }
-    } catch (error) {
-      console.error('Payment error:', error);
-    }
+  const initialValues: PaymentFormValues = {
+    recipientAddress: '',
+    amount: '',
+    description: '',
   };
 
+  const formik = useFormik({
+    initialValues,
+    validationSchema,
+    onSubmit: async (values, { setSubmitting }) => {
+      setError(null);
+      
+      try {
+        // Call the new sendPayment function with string recipient address
+        await sendPayment(
+          values.recipientAddress, 
+          parseFloat(values.amount),
+          values.description
+        );
+        
+        setSuccess(true);
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 2000);
+      } catch (err) {
+        setError('Failed to process payment. Please try again.');
+        console.error('Payment error:', err);
+      } finally {
+        setSubmitting(false);
+      }
+    },
+  });
+
   return (
-    <Card>
-      <CardContent>
-        <Typography variant="h5" gutterBottom>
-          Send Payment
-        </Typography>
-        <Formik
-          initialValues={{ recipientAddress: '', amount: '' }}
-          validationSchema={validationSchema}
-          onSubmit={handleSubmit}
-        >
-          {({ errors, touched, isValid, dirty }) => (
-            <Form>
-              <Field
-                name="recipientAddress"
-                as={TextField}
-                fullWidth
-                label="Recipient Address"
-                margin="normal"
-                required
-                placeholder="Enter ICP principal ID"
-                helperText={errors.recipientAddress && touched.recipientAddress ? errors.recipientAddress : 'Enter the recipient\'s Principal ID'}
-                error={errors.recipientAddress && touched.recipientAddress}
-              />
-              <Field
-                name="amount"
-                as={TextField}
-                fullWidth
-                label="Amount (ICP)"
-                type="number"
-                margin="normal"
-                required
-                placeholder="Enter amount in ICP"
-                helperText={errors.amount && touched.amount ? errors.amount : 'Enter the amount to send'}
-                error={errors.amount && touched.amount}
-              />
+    <Box p={3}>
+      <Typography variant="h4" gutterBottom>Send Payment</Typography>
+      
+      <Card 
+        component={motion.div}
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        sx={{ 
+          maxWidth: 600, 
+          mx: 'auto',
+          borderRadius: 2,
+          boxShadow: '0 8px 32px rgba(31, 38, 135, 0.15)'
+        }}
+      >
+        <CardContent>
+          {success ? (
+            <Alert severity="success">
+              Payment sent successfully! Redirecting to dashboard...
+            </Alert>
+          ) : (
+            <form onSubmit={formik.handleSubmit}>
               {error && (
-                <Alert severity="error" sx={{ mt: 2 }}>
+                <Alert severity="error" sx={{ mb: 2 }}>
                   {error}
                 </Alert>
               )}
-              {success && (
-                <Alert severity="success" sx={{ mt: 2 }}>
-                  Payment processed successfully!
-                </Alert>
-              )}
-              <Box mt={3}>
-                <Button
-                  type="submit"
-                  variant="contained"
-                  color="primary"
-                  size="large"
-                  fullWidth
-                  disabled={loading || !isValid || !dirty}
-                >
-                  {loading ? (
-                    <>
-                      <CircularProgress size={24} sx={{ mr: 1 }} />
-                      Processing...
-                    </>
-                  ) : (
-                    'Send Payment'
-                  )}
-                </Button>
-              </Box>
-            </Form>
+              
+              <Grid container spacing={3}>
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    id="recipientAddress"
+                    name="recipientAddress"
+                    label="Recipient Address"
+                    value={formik.values.recipientAddress}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    error={formik.touched.recipientAddress && Boolean(formik.errors.recipientAddress)}
+                    helperText={formik.touched.recipientAddress && formik.errors.recipientAddress}
+                    disabled={formik.isSubmitting}
+                  />
+                </Grid>
+                
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    id="amount"
+                    name="amount"
+                    label="Amount"
+                    value={formik.values.amount}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    error={formik.touched.amount && Boolean(formik.errors.amount)}
+                    helperText={formik.touched.amount && formik.errors.amount}
+                    disabled={formik.isSubmitting}
+                  />
+                </Grid>
+                
+                <Grid item xs={12}>
+                  <TextField
+                    fullWidth
+                    id="description"
+                    name="description"
+                    label="Description (Optional)"
+                    multiline
+                    rows={2}
+                    value={formik.values.description}
+                    onChange={formik.handleChange}
+                    onBlur={formik.handleBlur}
+                    error={formik.touched.description && Boolean(formik.errors.description)}
+                    helperText={formik.touched.description && formik.errors.description}
+                    disabled={formik.isSubmitting}
+                  />
+                </Grid>
+                
+                <Grid item xs={12}>
+                  <Button
+                    type="submit"
+                    variant="contained"
+                    color="primary"
+                    fullWidth
+                    disabled={formik.isSubmitting}
+                    sx={{ py: 1.5 }}
+                  >
+                    {formik.isSubmitting ? (
+                      <CircularProgress size={24} color="inherit" />
+                    ) : (
+                      'Send Payment'
+                    )}
+                  </Button>
+                </Grid>
+              </Grid>
+            </form>
           )}
-        </Formik>
-      </CardContent>
-    </Card>
+        </CardContent>
+      </Card>
+    </Box>
   );
 } 

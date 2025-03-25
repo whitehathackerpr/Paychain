@@ -19,7 +19,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [principal, setPrincipal] = useState<Principal | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { fetchBalance, fetchRecentTransactions } = usePayChainStore();
+  const { fetchUserProfile, fetchTransactions } = usePayChainStore();
 
   useEffect(() => {
     checkAuth();
@@ -38,8 +38,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setPrincipal(isAuthed ? (userPrincipal as any) : null);
       
       if (isAuthed) {
-        await fetchBalance();
-        await fetchRecentTransactions();
+        await fetchUserProfile();
+        await fetchTransactions();
       }
     } catch (err) {
       setError('Failed to check authentication status');
@@ -63,8 +63,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setIsAuthenticated(true);
           // Use type assertion to handle Principal type compatibility
           setPrincipal(userPrincipal as any);
-          fetchBalance();
-          fetchRecentTransactions();
+          fetchUserProfile();
+          fetchTransactions();
         },
       });
     } catch (err) {

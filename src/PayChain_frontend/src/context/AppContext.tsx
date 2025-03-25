@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { useSnackbar, SnackbarKey } from 'notistack';
-import type { PayChainState, Transaction, GenericPrincipal } from '../types';
+import type { PayChainState, Transaction } from '../types';
+import { GenericPrincipal } from '../utils/principal';
 
 const AppContext = createContext<PayChainState | null>(null);
 
