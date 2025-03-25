@@ -15,6 +15,23 @@ import {
   SxProps,
   Theme,
   CircularProgress,
+  Badge,
+  Divider,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemAvatar,
+  Menu,
+  MenuItem,
+  Dialog,
+  DialogContent,
+  ListItemSecondaryAction,
+  Tooltip,
+  Container,
+  Skeleton,
+  Paper,
+  styled,
+  DialogTitle,
 } from '@mui/material';
 import {
   Refresh as RefreshIcon,
@@ -28,11 +45,47 @@ import {
   ArrowUpward as ArrowUpwardIcon,
   ArrowDownward as ArrowDownwardIcon,
   MoreVert as MoreVertIcon,
+  Notifications as NotificationsIcon,
+  QrCode as QrCodeIcon,
+  Receipt as ReceiptIcon,
+  Schedule as ScheduleIcon,
+  Settings as SettingsIcon,
+  ArrowForward as ArrowForwardIcon,
+  ContentCopy as CopyIcon,
+  FilterList,
+  Bolt,
+  Speed,
 } from '@mui/icons-material';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { usePayChainStore, Transaction } from '../store/paychainStore';
-import { format } from 'date-fns';
+import { backendAdapter } from '../services/backendAdapter';
+import { format, parseISO } from 'date-fns';
+import Chart from '../components/ApexChartWrapper';
+
+// Conditionally import QRCode with a fallback
+let QRCode: any;
+try {
+  // Try to import QRCode
+  QRCode = require('qrcode.react').default;
+} catch (e) {
+  // Fallback to a simple component if qrcode.react is not available
+  QRCode = ({ value, size }: { value: string; size: number; level?: string; includeMargin?: boolean }) => (
+    <Box
+      sx={{
+        width: size,
+        height: size,
+        backgroundColor: '#f0f0f0',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        border: '1px solid #ddd',
+      }}
+    >
+      <Typography variant="caption" align="center">QR Code Placeholder<br />Value: {value.substring(0, 20)}...</Typography>
+    </Box>
+  );
+}
 
 // Define props interfaces with explicit types
 interface GlassCardProps {
@@ -108,57 +161,123 @@ const GradientCard = (props: GradientCardProps) => {
   );
 };
 
-export default function Dashboard() {
+// Styled components for enhanced UI
+const StatsCard = styled(motion.div)(({ theme }) => ({
+  height: '100%',
+  borderRadius: 16,
+  overflow: 'hidden',
+  position: 'relative',
+  transition: 'all 0.3s ease',
+  backdropFilter: 'blur(10px)',
+  background: 'rgba(9, 14, 44, 0.4)',
+  border: '1px solid rgba(79, 124, 255, 0.1)',
+  '&::before': {
+    content: '""',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    width: '100%',
+    height: '4px',
+    background: 'linear-gradient(90deg, #4F7CFF, #03DAC6)',
+  },
+  '&:hover': {
+    transform: 'translateY(-5px)',
+    boxShadow: '0 8px 20px rgba(0, 0, 0, 0.2)',
+    '& .icon-wrapper': {
+      transform: 'scale(1.1) rotate(10deg)',
+    },
+  },
+}));
+
+const IconWrapper = styled(Box)(({ theme }) => ({
+  borderRadius: '50%',
+  width: 48,
+  height: 48,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: alpha(theme.palette.primary.main, 0.15),
+  color: theme.palette.primary.main,
+  transition: 'all 0.3s ease',
+  boxShadow: `0 0 15px ${alpha(theme.palette.primary.main, 0.2)}`,
+}));
+
+const ChartCard = styled(Card)(({ theme }) => ({
+  height: '100%',
+  background: 'rgba(9, 14, 44, 0.4)',
+  backdropFilter: 'blur(10px)',
+  border: '1px solid rgba(79, 124, 255, 0.1)',
+  borderRadius: 16,
+  overflow: 'hidden',
+  transition: 'all 0.3s ease',
+  '&:hover': {
+    boxShadow: '0 8px 20px rgba(0, 0, 0, 0.2)',
+    transform: 'translateY(-5px)',
+  },
+}));
+
+const TransactionItem = styled(motion.div)(({ theme }) => ({
+  padding: theme.spacing(1.5),
+  borderRadius: 12,
+  marginBottom: theme.spacing(1),
+  transition: 'all 0.3s ease',
+  background: alpha(theme.palette.background.paper, 0.4),
+  border: '1px solid rgba(79, 124, 255, 0.05)',
+  backdropFilter: 'blur(5px)',
+  '&:hover': {
+    background: alpha(theme.palette.background.paper, 0.6),
+    transform: 'translateX(5px)',
+  },
+}));
+
+const GlowingValue = styled(Typography)(({ theme }) => ({
+  background: 'linear-gradient(90deg, #7EBCFF, #4F7CFF)',
+  WebkitBackgroundClip: 'text',
+  WebkitTextFillColor: 'transparent',
+  fontWeight: 700,
+  textShadow: '0 0 10px rgba(79, 124, 255, 0.5)',
+}));
+
+const PositiveValue = styled(Typography)(({ theme }) => ({
+  color: theme.palette.success.main,
+  fontWeight: 600,
+  display: 'flex',
+  alignItems: 'center',
+  '& svg': {
+    marginRight: theme.spacing(0.5),
+  },
+}));
+
+const NegativeValue = styled(Typography)(({ theme }) => ({
+  color: theme.palette.error.main,
+  fontWeight: 600,
+  display: 'flex',
+  alignItems: 'center',
+  '& svg': {
+    marginRight: theme.spacing(0.5),
+  },
+}));
+
+const Dashboard = () => {
   const { user, transactions, fetchTransactions, fetchUserProfile } = usePayChainStore();
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [accountData, setAccountData] = useState<any>(null);
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [receiveQrCode, setReceiveQrCode] = useState('');
+  const [qrDialogOpen, setQrDialogOpen] = useState(false);
+  const [qrCodeData, setQrCodeData] = useState('');
+  const [notificationAnchorEl, setNotificationAnchorEl] = useState<null | HTMLElement>(null);
+  const [localTransactions, setLocalTransactions] = useState<any[]>([]);
+  
   const navigate = useNavigate();
   const theme = useTheme();
 
-  useEffect(() => {
-    const loadData = async () => {
-      setIsLoading(true);
-      try {
-        await fetchUserProfile();
-        await fetchTransactions();
-      } catch (error) {
-        console.error('Error loading dashboard data:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    loadData();
-  }, [fetchTransactions, fetchUserProfile]);
-
-  const handleSendPayment = () => {
-    navigate('/payment');
-  };
-
-  const handleViewTransactions = () => {
-    navigate('/transactions');
-  };
-
-  const handleRefreshData = async () => {
-    setIsLoading(true);
-    try {
-      await fetchUserProfile();
-      await fetchTransactions();
-    } catch (error) {
-      console.error('Error refreshing data:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Calculate total received and spent
-  const totalReceived = transactions
-    .filter(tx => tx.status === 'completed' && tx.toAddress === (user?.principalId || ''))
-    .reduce((acc, tx) => acc + tx.amount, 0);
+  const [balanceHistory, setBalanceHistory] = useState<number[]>([]);
+  const [qrCodeValue, setQrCodeValue] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
   
-  const totalSpent = transactions
-    .filter(tx => tx.status === 'completed' && tx.fromAddress === (user?.principalId || ''))
-    .reduce((acc, tx) => acc + tx.amount, 0);
-
+  // Animation variants
   const containerVariants = {
     hidden: { opacity: 0 },
     visible: {
@@ -168,299 +287,681 @@ export default function Dashboard() {
       }
     }
   };
-
+  
   const itemVariants = {
     hidden: { y: 20, opacity: 0 },
     visible: {
       y: 0,
       opacity: 1,
       transition: {
-        type: 'spring',
-        stiffness: 100
+        duration: 0.4
       }
     }
   };
 
+  // Chart configuration
+  const chartOptions = {
+    chart: {
+      type: 'area',
+      toolbar: {
+        show: false,
+      },
+      zoom: {
+        enabled: false,
+      },
+      foreColor: 'rgba(255, 255, 255, 0.7)',
+      fontFamily: '"Inter", sans-serif',
+    },
+    tooltip: {
+      enabled: true,
+      theme: 'dark',
+      x: {
+        format: 'dd MMM yyyy',
+      },
+    },
+    colors: ['#4F7CFF', '#03DAC6'],
+    fill: {
+      type: 'gradient',
+      gradient: {
+        shadeIntensity: 1,
+        opacityFrom: 0.7,
+        opacityTo: 0.2,
+        stops: [0, 90, 100],
+      },
+    },
+    dataLabels: {
+      enabled: false,
+    },
+    stroke: {
+      curve: 'smooth',
+      width: 3,
+    },
+    xaxis: {
+      type: 'datetime',
+      categories: [
+        new Date(2023, 2, 1).getTime(),
+        new Date(2023, 2, 8).getTime(),
+        new Date(2023, 2, 15).getTime(),
+        new Date(2023, 2, 22).getTime(),
+        new Date(2023, 2, 29).getTime(),
+        new Date(2023, 3, 5).getTime(),
+      ],
+      axisBorder: {
+        show: false,
+      },
+      axisTicks: {
+        show: false,
+      },
+      labels: {
+        style: {
+          colors: 'rgba(255, 255, 255, 0.7)',
+        },
+      },
+    },
+    yaxis: {
+      labels: {
+        style: {
+          colors: 'rgba(255, 255, 255, 0.7)',
+        },
+        formatter: (value: number) => `${value.toFixed(2)} ICP`,
+      },
+    },
+    grid: {
+      borderColor: 'rgba(255, 255, 255, 0.1)',
+      strokeDashArray: 5,
+      yaxis: {
+        lines: {
+          show: true,
+        },
+      },
+      xaxis: {
+        lines: {
+          show: false,
+        },
+      },
+    },
+    legend: {
+      labels: {
+        colors: 'rgba(255, 255, 255, 0.9)',
+      },
+    },
+  };
+
+  const chartSeries = [
+    {
+      name: "Balance",
+      data: [4.2, 5.1, 4.8, 6.2, 5.8, 6.5],
+    },
+    {
+      name: "Transaction Volume",
+      data: [0.5, 1.2, 0.8, 1.5, 0.9, 1.1],
+    },
+  ];
+
+  const walletStats = [
+    {
+      title: "Total Balance",
+      value: accountData?.balance || user?.balance?.toFixed(2) || "0.00",
+      icon: <WalletIcon />,
+      change: "+5.4%",
+      positive: true,
+      gradientStart: "#4F7CFF",
+      gradientEnd: "#03DAC6",
+    },
+    {
+      title: "Pending Payments",
+      value: "2.75",
+      icon: <ScheduleIcon />,
+      change: "-2.1%",
+      positive: false,
+      gradientStart: "#FF5252",
+      gradientEnd: "#FFAB40",
+    },
+    {
+      title: "NFT Receipts",
+      value: "12",
+      icon: <ReceiptIcon />,
+      change: "+8.3%",
+      positive: true,
+      gradientStart: "#4F7CFF",
+      gradientEnd: "#9C27B0",
+    },
+    {
+      title: "Network Status",
+      value: "99.98%",
+      icon: <Speed />,
+      change: "+0.2%",
+      positive: true,
+      gradientStart: "#00E676",
+      gradientEnd: "#03DAC6",
+    },
+  ];
+
+  const handleCopyPrincipalId = () => {
+    if (user?.principalId) {
+      navigator.clipboard.writeText(user.principalId);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000);
+    }
+  };
+
+  const handleShowReceiveQR = () => {
+    setQrDialogOpen(true);
+  };
+
+  const handleSendPayment = () => {
+    navigate('/payment');
+  };
+
+  // Mock data - would be replaced with actual API calls
+  useEffect(() => {
+    // Simulate loading
+    const timer = setTimeout(() => {
+      // Generate sample transaction data
+      const mockTransactions = [
+        {
+          id: 'tx1',
+          type: 'received',
+          amount: 1.25,
+          fromAddress: 'pr1nc1p4l-1d-4l1c3',
+          toAddress: user?.principalId,
+          timestamp: new Date(2023, 3, 1).toISOString(),
+          status: 'completed',
+          description: 'Payment for services',
+        },
+        {
+          id: 'tx2',
+          type: 'sent',
+          amount: 0.5,
+          fromAddress: user?.principalId,
+          toAddress: 'pr1nc1p4l-1d-b0b',
+          timestamp: new Date(2023, 3, 2).toISOString(),
+          status: 'completed',
+          description: 'Dinner',
+        },
+        {
+          id: 'tx3',
+          type: 'received',
+          amount: 2.0,
+          fromAddress: 'pr1nc1p4l-1d-ch4rl13',
+          toAddress: user?.principalId,
+          timestamp: new Date(2023, 3, 4).toISOString(),
+          status: 'completed',
+          description: 'Refund',
+        },
+        {
+          id: 'tx4',
+          type: 'sent',
+          amount: 0.75,
+          fromAddress: user?.principalId,
+          toAddress: 'pr1nc1p4l-1d-d4v1d',
+          timestamp: new Date(2023, 3, 5).toISOString(),
+          status: 'completed',
+          description: 'Coffee meetup',
+        },
+        {
+          id: 'tx5',
+          type: 'received',
+          amount: 0.3,
+          fromAddress: 'pr1nc1p4l-1d-3v3',
+          toAddress: user?.principalId,
+          timestamp: new Date(2023, 3, 6).toISOString(),
+          status: 'pending',
+          description: 'Split bill',
+        },
+      ];
+
+      setLocalTransactions(mockTransactions);
+      setAccountData({ balance: 10.5 });
+      setIsLoading(false);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
-    <Box sx={{ px: 2, py: 4, maxWidth: 1200, mx: 'auto' }}>
-      {isLoading && <LinearProgress sx={{ mb: 2, borderRadius: 1 }} />}
-      
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
-        <Typography 
-          variant="h4" 
-          component={motion.h1}
-          initial={{ x: -20, opacity: 0 }}
-          animate={{ x: 0, opacity: 1 }}
-          transition={{ duration: 0.5 }}
-          sx={{ 
-            fontWeight: 700,
-            background: 'linear-gradient(90deg, #1976d2, #9c27b0)',
-            WebkitBackgroundClip: 'text',
-            WebkitTextFillColor: 'transparent'
-          }}
-        >
-          Your DeFi Dashboard
-        </Typography>
-        <IconButton 
-          onClick={handleRefreshData} 
-          disabled={isLoading}
-          component={motion.button}
-          whileHover={{ rotate: 180, scale: 1.1 }}
-          transition={{ duration: 0.3 }}
-          sx={{ 
-            background: alpha(theme.palette.primary.main, 0.1),
-            '&:hover': { background: alpha(theme.palette.primary.main, 0.2) }
-          }}
-        >
-          <RefreshIcon />
-        </IconButton>
-      </Box>
-      
-      {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '50vh' }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <motion.div
-          variants={containerVariants}
-          initial="hidden"
-          animate="visible"
-        >
-          <Grid container spacing={3} sx={{ mb: 4 }}>
-            {/* Balance Card */}
-            <Grid item xs={12} md={6}>
-              <motion.div variants={itemVariants}>
-                <GradientCard 
-                  gradientColors={['#1976d2', '#4527a0']}
-                  sx={{ height: '100%' }}
-                >
-                  <CardContent sx={{ p: 3 }}>
-                    <Box sx={{ display: 'flex', mb: 2, alignItems: 'center' }}>
-                      <Avatar 
-                        sx={{ 
-                          bgcolor: 'rgba(255, 255, 255, 0.2)', 
-                          width: 48, 
-                          height: 48,
-                          mr: 2
-                        }}
+    <Box sx={{ 
+      p: { xs: 0, sm: 0 }, 
+      height: '100%',
+      overflow: 'hidden'
+    }}>
+      <Container maxWidth={false} disableGutters sx={{ height: '100%', overflow: 'auto', pb: 0 }}>
+        <Grid container spacing={0} sx={{ minHeight: '100%' }}>
+          {/* Stats Section */}
+          <Grid item xs={12}>
+            <Box sx={{ p: 2, pt: 2 }}>
+              <Grid container spacing={2}>
+                {walletStats.map((stat, index) => (
+                  <Grid item xs={12} sm={6} md={3} key={index}>
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.1 }}
+                    >
+                      <StatsCard
+                        initial="hidden"
+                        animate="visible"
+                        whileHover={{ scale: 1.02 }}
                       >
-                        <WalletIcon />
-                      </Avatar>
-                      <Typography variant="h6" sx={{ fontWeight: 500 }}>
-                        Your Balance
-                      </Typography>
-                    </Box>
-                    
-                    <Typography variant="h3" sx={{ mb: 1, fontWeight: 700 }}>
-                      {user?.balance.toFixed(2)} ICP
-                    </Typography>
-                    
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 3 }}>
-                      <Button 
-                        variant="contained" 
-                        startIcon={<SendIcon />}
-                        onClick={handleSendPayment}
-                        sx={{ 
-                          borderRadius: 2,
-                          background: 'rgba(255, 255, 255, 0.2)',
-                          backdropFilter: 'blur(5px)',
-                          '&:hover': {
-                            background: 'rgba(255, 255, 255, 0.3)',
-                          }
-                        }}
-                      >
-                        Send ICP
-                      </Button>
-                      <Button 
-                        variant="outlined" 
-                        color="inherit"
-                        onClick={handleViewTransactions}
-                        sx={{ 
-                          borderRadius: 2,
-                          borderColor: 'rgba(255, 255, 255, 0.5)',
-                          '&:hover': {
-                            borderColor: 'rgba(255, 255, 255, 0.8)',
-                            background: 'rgba(255, 255, 255, 0.1)',
-                          }
-                        }}
-                      >
-                        View History
-                      </Button>
-                    </Box>
-                  </CardContent>
-                </GradientCard>
-              </motion.div>
-            </Grid>
-            
-            {/* Activity Card */}
-            <Grid item xs={12} md={6}>
-              <motion.div variants={itemVariants}>
-                <GlassCard sx={{ height: '100%' }}>
-                  <CardContent sx={{ p: 3 }}>
-                    <Box sx={{ display: 'flex', mb: 3, alignItems: 'center' }}>
-                      <Avatar 
-                        sx={{ 
-                          bgcolor: alpha(theme.palette.primary.main, 0.1), 
-                          color: theme.palette.primary.main,
-                          width: 48, 
-                          height: 48,
-                          mr: 2
-                        }}
-                      >
-                        <TimelineIcon />
-                      </Avatar>
-                      <Typography variant="h6" sx={{ fontWeight: 500 }}>
-                        Activity Overview
-                      </Typography>
-                    </Box>
-                    
-                    <Grid container spacing={2}>
-                      <Grid item xs={6}>
-                        <Box sx={{ mb: 2 }}>
-                          <Typography variant="body2" color="text.secondary">
-                            Total Received
-                          </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <ArrowDownwardIcon sx={{ color: theme.palette.success.main, mr: 1 }} />
-                            <Typography variant="h6" color="success.main" sx={{ fontWeight: 600 }}>
-                              +{totalReceived.toFixed(2)} ICP
+                        <Box sx={{ p: 2 }}>
+                          <Box display="flex" justifyContent="space-between" alignItems="center" mb={1}>
+                            <Typography variant="subtitle2" color="text.secondary">
+                              {stat.title}
                             </Typography>
-                          </Box>
-                        </Box>
-                      </Grid>
-                      
-                      <Grid item xs={6}>
-                        <Box sx={{ mb: 2 }}>
-                          <Typography variant="body2" color="text.secondary">
-                            Total Spent
-                          </Typography>
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <ArrowUpwardIcon sx={{ color: theme.palette.error.main, mr: 1 }} />
-                            <Typography variant="h6" color="error.main" sx={{ fontWeight: 600 }}>
-                              -{totalSpent.toFixed(2)} ICP
-                            </Typography>
-                          </Box>
-                        </Box>
-                      </Grid>
-                    </Grid>
-                    
-                    <Box sx={{ mt: 3, mb: 1 }}>
-                      <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                        System Status
-                      </Typography>
-                      <Box sx={{ 
-                        display: 'flex', 
-                        gap: 1, 
-                        flexWrap: 'wrap'
-                      }}>
-                        <Chip 
-                          icon={<SyncIcon sx={{ fontSize: 16 }} />} 
-                          label="Network: Active" 
-                          size="small" 
-                          color="success"
-                          sx={{ borderRadius: 1 }}
-                        />
-                        <Chip 
-                          icon={<SyncIcon sx={{ fontSize: 16 }} />} 
-                          label="Sync: Complete" 
-                          size="small" 
-                          color="success"
-                          sx={{ borderRadius: 1 }}
-                        />
-                      </Box>
-                    </Box>
-                  </CardContent>
-                </GlassCard>
-              </motion.div>
-            </Grid>
-          </Grid>
-          
-          <Typography variant="h6" sx={{ mb: 2, fontWeight: 600 }}>
-            Recent Transactions
-          </Typography>
-          
-          <Grid container spacing={2}>
-            {transactions.length > 0 ? (
-              transactions.slice(0, 4).map((transaction, index) => (
-                <Grid item xs={12} md={6} key={transaction.id}>
-                  <motion.div variants={itemVariants}>
-                    <GlassCard>
-                      <CardContent>
-                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                            <Avatar
-                              sx={{
-                                bgcolor: transaction.status === 'completed' 
-                                  ? alpha(theme.palette.success.main, 0.1)
-                                  : transaction.status === 'failed'
-                                  ? alpha(theme.palette.error.main, 0.1)
-                                  : alpha(theme.palette.warning.main, 0.1),
-                                color: transaction.status === 'completed'
-                                  ? theme.palette.success.main
-                                  : transaction.status === 'failed'
-                                  ? theme.palette.error.main
-                                  : theme.palette.warning.main,
-                                mr: 2
+                            <IconWrapper className="icon-wrapper" 
+                              sx={{ 
+                                background: `linear-gradient(135deg, ${stat.gradientStart} 0%, ${stat.gradientEnd} 100%)`,
+                                color: 'white'
                               }}
                             >
-                              {transaction.fromAddress === user?.principalId ? <SendIcon /> : <TrendingUpIcon />}
-                            </Avatar>
-                            <Box>
-                              <Typography variant="subtitle2">
-                                {transaction.fromAddress === user?.principalId
-                                  ? `Sent to ${transaction.toAddress.substring(0, 8)}...`
-                                  : `Received from ${transaction.fromAddress.substring(0, 8)}...`}
-                              </Typography>
-                              <Typography variant="caption" color="text.secondary">
-                                {format(new Date(transaction.timestamp), 'MMM dd, yyyy')}
-                              </Typography>
-                            </Box>
+                              {stat.icon}
+                            </IconWrapper>
                           </Box>
-                          <Box sx={{ textAlign: 'right' }}>
-                            <Typography variant="subtitle1" sx={{ fontWeight: 600 }}>
-                              {transaction.fromAddress === user?.principalId ? '-' : '+'}{transaction.amount.toFixed(2)} ICP
+                          
+                          {isLoading ? (
+                            <Skeleton variant="text" width="80%" height={40} />
+                          ) : (
+                            <GlowingValue variant="h4">
+                              {typeof stat.value === 'string' ? stat.value : stat.value?.toFixed(2)}
+                            </GlowingValue>
+                          )}
+                          
+                          <Box display="flex" alignItems="center" mt={1}>
+                            {stat.positive ? (
+                              <PositiveValue variant="body2">
+                                <TrendingUpIcon fontSize="small" />
+                                {stat.change}
+                              </PositiveValue>
+                            ) : (
+                              <NegativeValue variant="body2">
+                                <TrendingDownIcon fontSize="small" />
+                                {stat.change}
+                              </NegativeValue>
+                            )}
+                            <Typography variant="caption" color="text.secondary" sx={{ ml: 1 }}>
+                              vs last month
                             </Typography>
-                            <Chip
-                              label={transaction.status}
-                              size="small"
-                              color={
-                                transaction.status === 'completed'
-                                  ? 'success'
-                                  : transaction.status === 'failed'
-                                  ? 'error'
-                                  : 'warning'
-                              }
-                              sx={{ height: 24, borderRadius: 1 }}
-                            />
                           </Box>
                         </Box>
-                      </CardContent>
-                    </GlassCard>
-                  </motion.div>
-                </Grid>
-              ))
-            ) : (
-              <Grid item xs={12}>
-                <GlassCard>
-                  <CardContent sx={{ p: 4, textAlign: 'center' }}>
-                    <Typography variant="body1" color="text.secondary">
-                      No recent transactions found.
-                    </Typography>
-                    <Button 
-                      variant="contained" 
-                      color="primary" 
-                      sx={{ mt: 2, borderRadius: 2 }}
-                      onClick={handleSendPayment}
-                    >
-                      Make Your First Transaction
-                    </Button>
-                  </CardContent>
-                </GlassCard>
+                      </StatsCard>
+                    </motion.div>
+                  </Grid>
+                ))}
               </Grid>
-            )}
+            </Box>
           </Grid>
-        </motion.div>
-      )}
+
+          {/* Charts and Transactions Section */}
+          <Grid item xs={12}>
+            <Box sx={{ p: 2, pt: 0 }}>
+              <Grid container spacing={2}>
+                {/* Chart Section */}
+                <Grid item xs={12} md={8}>
+                  <ChartCard>
+                    <CardContent>
+                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                        <Typography variant="h6">Balance History</Typography>
+                        <Box>
+                          <IconButton size="small" color="primary">
+                            <RefreshIcon />
+                          </IconButton>
+                          <IconButton size="small" color="primary">
+                            <FilterList />
+                          </IconButton>
+                        </Box>
+                      </Box>
+                      
+                      {isLoading ? (
+                        <Skeleton variant="rectangular" width="100%" height={350} />
+                      ) : (
+                        <Chart 
+                          options={chartOptions}
+                          series={chartSeries}
+                          type="area"
+                          height={350}
+                        />
+                      )}
+                    </CardContent>
+                  </ChartCard>
+                </Grid>
+                
+                {/* Transactions Section */}
+                <Grid item xs={12} md={4}>
+                  <ChartCard>
+                    <CardContent sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={2}>
+                        <Typography variant="h6">Recent Transactions</Typography>
+                        <IconButton size="small" color="primary">
+                          <TimelineIcon />
+                        </IconButton>
+                      </Box>
+                      
+                      <Box sx={{ flexGrow: 1, overflow: 'hidden' }}>
+                        {isLoading ? (
+                          Array.from(new Array(4)).map((_, index) => (
+                            <Box key={index} mb={2}>
+                              <Skeleton variant="rectangular" width="100%" height={70} sx={{ borderRadius: 2 }} />
+                            </Box>
+                          ))
+                        ) : (
+                          <motion.div variants={containerVariants} initial="hidden" animate="visible">
+                            {localTransactions.slice(0, 4).map((tx, index) => (
+                              <motion.div key={tx.id} variants={itemVariants}>
+                                <TransactionItem>
+                                  <Grid container alignItems="center" spacing={1}>
+                                    <Grid item>
+                                      <Avatar 
+                                        sx={{ 
+                                          bgcolor: tx.type === 'in' ? 'success.main' : 'error.main',
+                                          width: 40,
+                                          height: 40
+                                        }}
+                                      >
+                                        {tx.type === 'in' ? <ArrowDownwardIcon /> : <ArrowUpwardIcon />}
+                                      </Avatar>
+                                    </Grid>
+                                    <Grid item xs>
+                                      <Typography variant="subtitle2" noWrap>
+                                        {tx.title}
+                                      </Typography>
+                                      <Typography variant="caption" color="text.secondary" noWrap>
+                                        {tx.date} • {tx.status}
+                                      </Typography>
+                                    </Grid>
+                                    <Grid item>
+                                      <Typography 
+                                        variant="subtitle2" 
+                                        color={tx.type === 'in' ? 'success.main' : 'error.main'}
+                                        fontWeight="bold"
+                                      >
+                                        {tx.type === 'in' ? '+' : '-'}{tx.amount}
+                                      </Typography>
+                                    </Grid>
+                                  </Grid>
+                                </TransactionItem>
+                              </motion.div>
+                            ))}
+                          </motion.div>
+                        )}
+                      </Box>
+                      
+                      <Box mt={2} sx={{ display: 'flex', justifyContent: 'center' }}>
+                        <Button 
+                          variant="outlined" 
+                          color="primary" 
+                          endIcon={<ArrowForwardIcon />}
+                          onClick={() => navigate('/transactions')}
+                          fullWidth
+                          sx={{ 
+                            borderRadius: 4,
+                            background: 'rgba(79, 124, 255, 0.05)',
+                            boxShadow: '0 4px 12px rgba(79, 124, 255, 0.1)',
+                            '&:hover': {
+                              background: 'rgba(79, 124, 255, 0.1)',
+                              boxShadow: '0 6px 16px rgba(79, 124, 255, 0.2)',
+                            }
+                          }}
+                        >
+                          View All Transactions
+                        </Button>
+                      </Box>
+                    </CardContent>
+                  </ChartCard>
+                </Grid>
+              </Grid>
+            </Box>
+          </Grid>
+
+          {/* Quick Actions Section */}
+          <Grid item xs={12}>
+            <Box sx={{ p: 2, pt: 0 }}>
+              <Grid container spacing={2}>
+                {/* Payment Actions Section */}
+                <Grid item xs={12} md={4}>
+                  <ChartCard>
+                    <CardContent>
+                      <Typography variant="h6" gutterBottom>
+                        Quick Actions
+                      </Typography>
+                      
+                      <Box sx={{ mt: 3, display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        <Button 
+                          variant="contained" 
+                          color="primary" 
+                          startIcon={<SendIcon />}
+                          fullWidth
+                          size="large"
+                          onClick={handleSendPayment}
+                          sx={{ 
+                            borderRadius: 8,
+                            py: 1.5,
+                            background: 'linear-gradient(90deg, #4F7CFF, #03DAC6)',
+                            boxShadow: '0 4px 15px rgba(79, 124, 255, 0.3)',
+                            '&:hover': {
+                              boxShadow: '0 6px 20px rgba(79, 124, 255, 0.4)',
+                            }
+                          }}
+                        >
+                          Send Payment
+                        </Button>
+                        
+                        <Button 
+                          variant="outlined" 
+                          color="primary" 
+                          startIcon={<QrCodeIcon />}
+                          fullWidth
+                          size="large"
+                          onClick={handleShowReceiveQR}
+                          sx={{ 
+                            borderRadius: 8,
+                            py: 1.5,
+                            borderColor: 'rgba(79, 124, 255, 0.5)',
+                            '&:hover': {
+                              borderColor: 'primary.main',
+                              background: 'rgba(79, 124, 255, 0.05)',
+                            }
+                          }}
+                        >
+                          Receive Payment
+                        </Button>
+                        
+                        <Button 
+                          variant="outlined" 
+                          color="secondary" 
+                          startIcon={<Bolt />}
+                          fullWidth
+                          size="large"
+                          sx={{ 
+                            borderRadius: 8,
+                            py: 1.5,
+                            borderColor: 'rgba(3, 218, 198, 0.5)',
+                            color: 'secondary.main',
+                            '&:hover': {
+                              borderColor: 'secondary.main',
+                              background: 'rgba(3, 218, 198, 0.05)',
+                            }
+                          }}
+                        >
+                          Quick Transfer
+                        </Button>
+                      </Box>
+                    </CardContent>
+                  </ChartCard>
+                </Grid>
+                
+                {/* Principal ID Card Section */}
+                <Grid item xs={12} md={8}>
+                  <ChartCard>
+                    <CardContent>
+                      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
+                        <Typography variant="h6">Your Principal ID</Typography>
+                        <Chip 
+                          label="Verified"
+                          color="success"
+                          size="small"
+                          sx={{ 
+                            fontWeight: 'bold',
+                            background: 'rgba(46, 204, 113, 0.2)',
+                            border: '1px solid rgba(46, 204, 113, 0.3)',
+                          }}
+                        />
+                      </Box>
+                      
+                      <Box
+                        sx={{
+                          p: 2,
+                          borderRadius: 3,
+                          background: 'rgba(255, 255, 255, 0.05)',
+                          backdropFilter: 'blur(5px)',
+                          border: '1px solid rgba(255, 255, 255, 0.1)',
+                        }}
+                      >
+                        <Grid container spacing={0} alignItems="center">
+                          <Grid item xs={12} md={8}>
+                            <Typography variant="body2" color="text.secondary" gutterBottom>
+                              Use this ID to receive payments
+                            </Typography>
+                            
+                            <Typography
+                              variant="subtitle1"
+                              sx={{
+                                fontFamily: 'monospace',
+                                backgroundColor: 'rgba(0, 0, 0, 0.3)',
+                                p: 1.5,
+                                borderRadius: 2,
+                                wordBreak: 'break-all',
+                                mb: 1
+                              }}
+                            >
+                              {isLoading ? (
+                                <Skeleton width="100%" />
+                              ) : (
+                                user?.id || '2vxsx-fae-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-xxxxxxxx-x'
+                              )}
+                            </Typography>
+                            
+                            <Box display="flex" gap={1}>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="primary"
+                                onClick={handleCopyPrincipalId}
+                                startIcon={<CopyIcon />}
+                                sx={{ borderRadius: 4 }}
+                              >
+                                Copy
+                              </Button>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                color="primary"
+                                startIcon={<QrCodeIcon />}
+                                onClick={handleShowReceiveQR}
+                                sx={{ borderRadius: 4 }}
+                              >
+                                QR Code
+                              </Button>
+                            </Box>
+                          </Grid>
+                          
+                          <Grid item xs={12} md={4} sx={{ display: 'flex', justifyContent: 'center', mt: { xs: 3, md: 0 } }}>
+                            <Box
+                              sx={{
+                                width: 120,
+                                height: 120,
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                backgroundColor: '#fff',
+                                borderRadius: 2,
+                                p: 1,
+                                border: '1px solid rgba(0, 0, 0, 0.1)',
+                                boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08)',
+                              }}
+                            >
+                              {isLoading ? (
+                                <Skeleton variant="rectangular" width={100} height={100} />
+                              ) : (
+                                <QRCode
+                                  value={user?.id ? String(user.id) : ''}
+                                  size={100}
+                                  level="H"
+                                  includeMargin={false}
+                                />
+                              )}
+                            </Box>
+                          </Grid>
+                        </Grid>
+                      </Box>
+                    </CardContent>
+                  </ChartCard>
+                </Grid>
+              </Grid>
+            </Box>
+          </Grid>
+        </Grid>
+      </Container>
+      
+      {/* QR Code Dialog */}
+      <Dialog
+        open={qrDialogOpen}
+        onClose={() => setQrDialogOpen(false)}
+        maxWidth="xs"
+        fullWidth
+        PaperProps={{
+          sx: {
+            background: 'linear-gradient(135deg, rgba(9, 14, 44, 0.8) 0%, rgba(26, 16, 53, 0.9) 100%)',
+            backdropFilter: 'blur(10px)',
+            borderRadius: 4,
+            overflow: 'hidden',
+            boxShadow: '0 10px 40px rgba(0, 0, 0, 0.3)',
+          }
+        }}
+      >
+        <DialogTitle sx={{ textAlign: 'center', pb: 0 }}>
+          <Typography variant="h6" sx={{ fontWeight: 'bold' }}>Receive Payment</Typography>
+          <Typography variant="caption" color="text.secondary">Scan QR code or share your Principal ID</Typography>
+        </DialogTitle>
+        <DialogContent>
+          <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 }}>
+            <Box
+              sx={{
+                backgroundColor: '#ffffff',
+                p: 2,
+                borderRadius: 2,
+                boxShadow: '0 4px 15px rgba(0, 0, 0, 0.1)',
+                mb: 2,
+              }}
+            >
+              <QRCode
+                value={user?.id ? String(user.id) : ''}
+                size={200}
+                level="H"
+                includeMargin
+              />
+            </Box>
+            
+            <Typography variant="subtitle2" sx={{ fontFamily: 'monospace', textAlign: 'center' }}>
+              {user?.id ? backendAdapter.utils.formatPrincipalId(String(user.id)) : ''}
+            </Typography>
+            
+            <Box display="flex" gap={2} mt={1} width="100%">
+              <Button
+                variant="outlined"
+                color="primary"
+                startIcon={<CopyIcon />}
+                onClick={handleCopyPrincipalId}
+                fullWidth
+                sx={{ borderRadius: 4 }}
+              >
+                Copy ID
+              </Button>
+            </Box>
+          </Box>
+        </DialogContent>
+      </Dialog>
     </Box>
   );
-} 
+};
+
+export default Dashboard; 

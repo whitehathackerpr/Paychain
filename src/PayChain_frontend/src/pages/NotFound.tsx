@@ -1,34 +1,43 @@
 import React from 'react';
-import { Box, Typography, Button } from '@mui/material';
-import { useNavigate } from 'react-router-dom';
-import AnimatedCard from '../components/AnimatedCard';
+import { Box, Typography, Button, Container, Paper } from '@mui/material';
+import { Link } from 'react-router-dom';
+import { BackupTable as NotFoundIcon } from '@mui/icons-material';
 
-export default function NotFound() {
-  const navigate = useNavigate();
-  
+const NotFound: React.FC = () => {
   return (
-    <Box 
-      display="flex" 
-      justifyContent="center" 
-      alignItems="center" 
-      minHeight="calc(100vh - 64px)"
-      p={3}
-    >
-      <AnimatedCard sx={{ maxWidth: 500, width: '100%', textAlign: 'center', p: 3 }}>
+    <Container maxWidth="md">
+      <Paper 
+        sx={{ 
+          textAlign: 'center', 
+          p: 5, 
+          mt: 10,
+          borderRadius: 2,
+          boxShadow: 3
+        }}
+      >
+        <NotFoundIcon sx={{ fontSize: 100, color: 'text.secondary', mb: 2 }} />
+        
         <Typography variant="h4" gutterBottom>
-          404 - Page Not Found
+          Page Not Found
         </Typography>
+        
         <Typography variant="body1" color="text.secondary" paragraph>
           The page you're looking for doesn't exist or has been moved.
         </Typography>
-        <Button 
-          variant="contained" 
-          onClick={() => navigate('/')}
-          sx={{ mt: 2 }}
-        >
-          Go to Dashboard
-        </Button>
-      </AnimatedCard>
-    </Box>
+        
+        <Box sx={{ mt: 4 }}>
+          <Button 
+            component={Link} 
+            to="/dashboard" 
+            variant="contained" 
+            size="large"
+          >
+            Go to Dashboard
+          </Button>
+        </Box>
+      </Paper>
+    </Container>
   );
-} 
+};
+
+export default NotFound; 

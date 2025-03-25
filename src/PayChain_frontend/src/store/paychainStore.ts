@@ -3,14 +3,17 @@ import { persist } from 'zustand/middleware';
 import { Actor, HttpAgent } from '@dfinity/agent';
 import { Principal } from '@dfinity/principal';
 import { AuthClient } from '@dfinity/auth-client';
+import { backendAdapter } from '../services/backendAdapter';
 
 // Define the user interface
 export interface User {
+  id: number;
   email: string;
   principalId: string;
-  balance: number;
-  isVerified: boolean;
-  createdAt: string;
+  name?: string;
+  balance?: number;
+  avatar?: string;
+  isVerified?: boolean;
 }
 
 // Define the transaction interface
@@ -27,325 +30,209 @@ export interface Transaction {
 
 // Define the store state interface
 export interface PayChainState {
-  isInitialized: boolean;
   isAuthenticated: boolean;
-  user: User | null;
-  authClient: AuthClient | null;
-  principalId: string | null;
-  transactions: Transaction[];
+  isInitialized: boolean;
   isLoading: boolean;
+  user: User | null;
   error: string | null;
-  
-  // Authentication methods
+  transactions: Transaction[];
   initialize: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, principalId: string) => Promise<void>;
   logout: () => Promise<void>;
-  
-  // Transaction methods
-  sendPayment: (recipient: string, amount: number, description?: string) => Promise<void>;
-  fetchTransactions: () => Promise<void>;
-  
-  // User methods
+  updateUser: (data: Partial<User>) => Promise<void>;
   fetchUserProfile: () => Promise<void>;
-  updateUserProfile: (user: Partial<User>) => Promise<void>;
+  fetchTransactions: () => Promise<void>;
+  sendPayment: (recipientAddress: string, amount: number, description?: string) => Promise<any>;
 }
 
 // Create the store
 export const usePayChainStore = create<PayChainState>()(
   persist(
     (set, get) => ({
-      isInitialized: false,
       isAuthenticated: false,
-      user: null,
-      authClient: null,
-      principalId: null,
-      transactions: [],
+      isInitialized: false,
       isLoading: false,
+      user: null,
       error: null,
-      
-      // Authentication methods
+      transactions: [],
+
       initialize: async () => {
         try {
-          set({ isLoading: true, error: null });
-          
-          // Mock initialization for now - this would be replaced with actual Internet Computer authentication
-          const authClient = await AuthClient.create();
-          const isAuthenticated = await authClient.isAuthenticated();
-          
-          set({
-            isInitialized: true,
-            isAuthenticated,
-            authClient,
-            isLoading: false,
-          });
-          
-          // If user is authenticated, fetch their profile
-          if (isAuthenticated) {
-            const identity = authClient.getIdentity();
-            const principal = identity.getPrincipal();
-            set({ principalId: principal.toString() });
+          // Check if user is already logged in
+          if (backendAdapter.auth.isAuthenticated()) {
+            set({ isLoading: true });
+            const userData = await backendAdapter.auth.getCurrentUser();
             
-            // Fetch user profile
-            await get().fetchUserProfile();
+            set({ 
+              isAuthenticated: true, 
+              user: userData,
+              isInitialized: true,
+              isLoading: false,
+              error: null 
+            });
+
+            // Fetch transactions if user is authenticated
+            get().fetchTransactions();
+          } else {
+            set({ 
+              isAuthenticated: false, 
+              user: null,
+              isInitialized: true,
+              isLoading: false,
+              error: null 
+            });
           }
         } catch (error) {
-          console.error('Initialization error:', error);
-          set({ isLoading: false, error: 'Failed to initialize the application.' });
+          console.error('Failed to initialize auth state:', error);
+          set({ 
+            isAuthenticated: false, 
+            user: null, 
+            isInitialized: true,
+            isLoading: false,
+            error: 'Authentication failed during initialization' 
+          });
         }
       },
-      
+
       login: async (email: string, password: string) => {
         try {
-          set({ isLoading: true, error: null });
-          
-          // This is a mock implementation - would be replaced with actual backend call
-          // In a real app, we would call the backend to authenticate
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          // Mock successful login
-          const mockUser: User = {
-            email,
-            principalId: 'user-123abc456def',
-            balance: 1000.00,
-            isVerified: true,
-            createdAt: new Date().toISOString(),
-          };
-          
-          const mockTransactions: Transaction[] = [
-            {
-              id: '1',
-              amount: 50,
-              fromAddress: 'user-123abc456def',
-              toAddress: 'user-789xyz',
-              timestamp: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-              status: 'completed',
-              type: 'payment',
-              description: 'Payment for services',
-            },
-            {
-              id: '2',
-              amount: 100,
-              fromAddress: 'user-abc123',
-              toAddress: 'user-123abc456def',
-              timestamp: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
-              status: 'completed',
-              type: 'payment',
-              description: 'Monthly subscription',
-            },
-          ];
-          
-          set({
-            isAuthenticated: true,
-            user: mockUser,
-            principalId: mockUser.principalId,
-            transactions: mockTransactions,
+          set({ error: null, isLoading: true });
+          const userData = await backendAdapter.auth.login(email, password);
+          set({ 
+            isAuthenticated: true, 
+            user: userData.user,
             isLoading: false,
+            error: null 
           });
+          
+          // Fetch transactions after login
+          get().fetchTransactions();
         } catch (error) {
           console.error('Login error:', error);
-          set({ isLoading: false, error: 'Invalid email or password.' });
-          throw new Error('Login failed');
+          set({ 
+            isAuthenticated: false, 
+            user: null,
+            isLoading: false,
+            error: 'Invalid email or password' 
+          });
+          throw error;
         }
       },
-      
+
       register: async (email: string, password: string, principalId: string) => {
         try {
-          set({ isLoading: true, error: null });
-          
-          // This is a mock implementation - would be replaced with actual backend call
-          await new Promise(resolve => setTimeout(resolve, 1500));
-          
-          // Mock successful registration
-          set({
-            isLoading: false,
-          });
+          set({ error: null, isLoading: true });
+          await backendAdapter.auth.register(email, password, principalId);
+          // After registration, log the user in
+          await get().login(email, password);
         } catch (error) {
           console.error('Registration error:', error);
-          set({ isLoading: false, error: 'Registration failed. Please try again.' });
-          throw new Error('Registration failed');
+          set({ error: 'Registration failed. Please try again.', isLoading: false });
+          throw error;
         }
       },
-      
+
       logout: async () => {
+        backendAdapter.auth.logout();
+        set({ 
+          isAuthenticated: false, 
+          user: null,
+          transactions: [],
+          error: null 
+        });
+      },
+
+      updateUser: async (data: Partial<User>) => {
         try {
-          set({ isLoading: true });
-          
-          // Clear auth state
-          const { authClient } = get();
-          if (authClient) {
-            await authClient.logout();
+          set({ error: null, isLoading: true });
+          const currentUser = get().user;
+          if (!currentUser || !currentUser.id) {
+            throw new Error('No user logged in');
           }
           
-          // Reset the store
+          await backendAdapter.users.updateUser(currentUser.id.toString(), data);
+          
+          // Update local state with new user data
           set({
-            isAuthenticated: false,
-            user: null,
-            principalId: null,
-            transactions: [],
+            user: { ...currentUser, ...data },
             isLoading: false,
+            error: null
           });
         } catch (error) {
-          console.error('Logout error:', error);
-          set({ isLoading: false, error: 'Failed to logout.' });
+          console.error('Update user error:', error);
+          set({ error: 'Failed to update user profile', isLoading: false });
+          throw error;
         }
       },
-      
-      // Transaction methods
-      sendPayment: async (recipient: string, amount: number, description?: string) => {
-        try {
-          set({ isLoading: true, error: null });
-          
-          // This is a mock implementation - would be replaced with actual backend call
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          const { user, transactions } = get();
-          
-          if (!user) {
-            throw new Error('User not authenticated');
-          }
-          
-          // Create a new transaction
-          const newTransaction: Transaction = {
-            id: Math.random().toString(36).substring(2, 11),
-            amount,
-            fromAddress: user.principalId,
-            toAddress: recipient,
-            timestamp: new Date().toISOString(),
-            status: 'completed',
-            type: 'payment',
-            description,
-          };
-          
-          // Update user balance
-          const updatedUser = {
-            ...user,
-            balance: user.balance - amount,
-          };
-          
-          // Update the store with the new transaction and updated user
-          set({
-            user: updatedUser,
-            transactions: [newTransaction, ...transactions],
-            isLoading: false,
-          });
-        } catch (error) {
-          console.error('Payment error:', error);
-          set({ isLoading: false, error: 'Failed to send payment. Please try again.' });
-          throw new Error('Payment failed');
-        }
-      },
-      
-      fetchTransactions: async () => {
-        try {
-          set({ isLoading: true, error: null });
-          
-          // This is a mock implementation - would be replaced with actual backend call
-          await new Promise(resolve => setTimeout(resolve, 800));
-          
-          // Mock transactions data
-          const mockTransactions: Transaction[] = [
-            {
-              id: '1',
-              amount: 50,
-              fromAddress: get().principalId || '',
-              toAddress: 'user-789xyz',
-              timestamp: new Date(Date.now() - 86400000).toISOString(), // 1 day ago
-              status: 'completed',
-              type: 'payment',
-              description: 'Payment for services',
-            },
-            {
-              id: '2',
-              amount: 100,
-              fromAddress: 'user-abc123',
-              toAddress: get().principalId || '',
-              timestamp: new Date(Date.now() - 172800000).toISOString(), // 2 days ago
-              status: 'completed',
-              type: 'payment',
-              description: 'Monthly subscription',
-            },
-            {
-              id: '3',
-              amount: 25,
-              fromAddress: get().principalId || '',
-              toAddress: 'user-def456',
-              timestamp: new Date(Date.now() - 259200000).toISOString(), // 3 days ago
-              status: 'completed',
-              type: 'payment',
-              description: 'Lunch',
-            },
-          ];
-          
-          set({ transactions: mockTransactions, isLoading: false });
-        } catch (error) {
-          console.error('Fetch transactions error:', error);
-          set({ isLoading: false, error: 'Failed to fetch transactions.' });
-        }
-      },
-      
-      // User methods
+
       fetchUserProfile: async () => {
         try {
           set({ isLoading: true, error: null });
-          
-          // This is a mock implementation - would be replaced with actual backend call
-          await new Promise(resolve => setTimeout(resolve, 800));
-          
-          const { principalId } = get();
-          
-          if (!principalId) {
-            throw new Error('User not authenticated');
-          }
-          
-          // Mock user data
-          const mockUser: User = {
-            email: 'demo@paychain.ic',
-            principalId: principalId,
-            balance: 1000.00,
-            isVerified: true,
-            createdAt: new Date(Date.now() - 2592000000).toISOString(), // 30 days ago
-          };
-          
-          set({ user: mockUser, isLoading: false });
+          const userData = await backendAdapter.auth.getCurrentUser();
+          set({ 
+            user: userData,
+            isLoading: false,
+            error: null 
+          });
         } catch (error) {
-          console.error('Fetch user profile error:', error);
-          set({ isLoading: false, error: 'Failed to fetch user profile.' });
+          console.error('Error fetching user profile:', error);
+          set({ 
+            isLoading: false,
+            error: 'Failed to fetch user profile'
+          });
         }
       },
-      
-      updateUserProfile: async (updatedUserData: Partial<User>) => {
+
+      fetchTransactions: async () => {
+        try {
+          set({ isLoading: true, error: null });
+          const response = await backendAdapter.transactions.getTransactions();
+          set({ 
+            transactions: response.data || [], 
+            isLoading: false,
+            error: null 
+          });
+        } catch (error) {
+          console.error('Error fetching transactions:', error);
+          set({ 
+            isLoading: false,
+            error: 'Failed to fetch transactions'
+          });
+        }
+      },
+
+      sendPayment: async (recipientAddress: string, amount: number, description?: string) => {
         try {
           set({ isLoading: true, error: null });
           
-          // This is a mock implementation - would be replaced with actual backend call
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          const { user } = get();
-          
-          if (!user) {
-            throw new Error('User not authenticated');
-          }
-          
-          // Update the user with the new data
-          const updatedUser = {
-            ...user,
-            ...updatedUserData,
+          const paymentData = {
+            recipient_principal: recipientAddress,
+            amount,
+            description
           };
           
-          set({ user: updatedUser, isLoading: false });
+          const response = await backendAdapter.transactions.createTransaction(paymentData);
+          
+          // After successful payment, refresh transactions
+          await get().fetchTransactions();
+          
+          set({ isLoading: false, error: null });
+          return response;
         } catch (error) {
-          console.error('Update user profile error:', error);
-          set({ isLoading: false, error: 'Failed to update user profile.' });
-          throw new Error('Update profile failed');
+          console.error('Error sending payment:', error);
+          set({ 
+            isLoading: false,
+            error: 'Failed to send payment'
+          });
+          throw error;
         }
-      },
+      }
     }),
     {
       name: 'paychain-storage',
       partialize: (state) => ({
         isAuthenticated: state.isAuthenticated,
-        principalId: state.principalId,
         user: state.user,
       }),
     }

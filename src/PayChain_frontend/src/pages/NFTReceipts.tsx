@@ -13,77 +13,49 @@ import {
   useTheme,
   Paper,
   alpha,
+  Alert,
 } from '@mui/material';
 import { motion } from 'framer-motion';
 import { usePayChainStore } from '../store/paychainStore';
+import { backendAdapter } from '../services/backendAdapter';
 
-// Mock NFT receipt interface
+// NFT receipt interface that matches the backend API response
 interface NFTReceipt {
   id: string;
-  title: string;
-  transactionId: string;
-  amount: number;
-  date: string;
-  image: string;
-  recipient: string;
-  status: 'minted' | 'pending';
+  transaction_id: string;
+  owner_id: string;
+  image_url: string;
+  receipt_metadata: {
+    amount: number;
+    timestamp: string;
+    sender: string;
+    recipient: string;
+    description?: string;
+  };
 }
 
 const NFTReceipts: React.FC = () => {
   const theme = useTheme();
-  const { transactions } = usePayChainStore();
+  const { user } = usePayChainStore();
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [nftReceipts, setNftReceipts] = useState<NFTReceipt[]>([]);
   
-  // Mock data for NFT receipts
-  const mockNftReceipts: NFTReceipt[] = [
-    {
-      id: 'nft-1',
-      title: 'Payment to Vendor A',
-      transactionId: 'tx-123456',
-      amount: 150,
-      date: '2023-06-15T12:30:00Z',
-      image: 'https://via.placeholder.com/300/3F88F6/FFFFFF?text=Receipt+NFT',
-      recipient: 'user-xyz789',
-      status: 'minted',
-    },
-    {
-      id: 'nft-2',
-      title: 'Monthly Subscription',
-      transactionId: 'tx-789012',
-      amount: 30,
-      date: '2023-07-01T10:15:00Z',
-      image: 'https://via.placeholder.com/300/9c27b0/FFFFFF?text=Subscription+NFT',
-      recipient: 'user-abc123',
-      status: 'minted',
-    },
-    {
-      id: 'nft-3',
-      title: 'Service Payment',
-      transactionId: 'tx-345678',
-      amount: 75,
-      date: '2023-07-10T15:45:00Z',
-      image: 'https://via.placeholder.com/300/4CAF50/FFFFFF?text=Service+NFT',
-      recipient: 'user-def456',
-      status: 'pending',
-    },
-  ];
-  
   useEffect(() => {
-    // Simulate loading NFT receipts from the backend
     const fetchNftReceipts = async () => {
       try {
         setIsLoading(true);
-        // Simulate API delay
-        await new Promise(resolve => setTimeout(resolve, 1500));
+        setError(null);
         
-        // For a real implementation, we would generate these from transactions
-        // const generatedReceipts = transactions.map(tx => ({...}))
+        // Fetch NFT receipts from backend
+        const response = await backendAdapter.nftReceipts.getNFTReceipts();
+        setNftReceipts(response.data || []);
+      } catch (err) {
+        console.error('Error fetching NFT receipts:', err);
+        setError('Failed to load NFT receipts. Please try again later.');
         
-        // Set mock data
-        setNftReceipts(mockNftReceipts);
-      } catch (error) {
-        console.error('Error fetching NFT receipts:', error);
+        // Fallback to empty array
+        setNftReceipts([]);
       } finally {
         setIsLoading(false);
       }
@@ -91,6 +63,23 @@ const NFTReceipts: React.FC = () => {
     
     fetchNftReceipts();
   }, []);
+  
+  const handleGenerateNFT = async (transactionId: string) => {
+    try {
+      setIsLoading(true);
+      await backendAdapter.nftReceipts.generateNFTReceipt(transactionId);
+      
+      // Refetch the NFT receipts to show the newly generated one
+      const response = await backendAdapter.nftReceipts.getNFTReceipts();
+      setNftReceipts(response.data || []);
+      setError(null);
+    } catch (err) {
+      console.error('Error generating NFT receipt:', err);
+      setError('Failed to generate NFT receipt. Please try again.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
   
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -120,7 +109,14 @@ const NFTReceipts: React.FC = () => {
       year: 'numeric',
       month: 'short',
       day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
     });
+  };
+  
+  // Fix the formatPrincipalId wrapper function to handle undefined values
+  const formatPrincipalId = (principalId: string | undefined | null): string => {
+    return backendAdapter.utils.formatPrincipalId(principalId);
   };
   
   return (
@@ -133,6 +129,12 @@ const NFTReceipts: React.FC = () => {
           View and manage your transaction receipts as NFTs
         </Typography>
       </Box>
+      
+      {error && (
+        <Alert severity="error" sx={{ mb: 3 }}>
+          {error}
+        </Alert>
+      )}
       
       {isLoading ? (
         <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
@@ -156,7 +158,12 @@ const NFTReceipts: React.FC = () => {
               <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
                 You don't have any transaction receipts minted as NFTs yet.
               </Typography>
-              <Button variant="contained" color="primary">
+              <Button 
+                variant="contained" 
+                color="primary"
+                onClick={() => handleGenerateNFT('')}
+                disabled={isLoading}
+              >
                 Create Your First NFT Receipt
               </Button>
             </Paper>
@@ -188,17 +195,17 @@ const NFTReceipts: React.FC = () => {
                     <CardMedia
                       component="img"
                       height="200"
-                      image={receipt.image}
-                      alt={receipt.title}
+                      image={receipt.image_url || `https://via.placeholder.com/300/3F88F6/FFFFFF?text=Receipt+NFT`}
+                      alt={`Transaction Receipt ${receipt.id}`}
                     />
                     <CardContent sx={{ flexGrow: 1 }}>
                       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 2 }}>
                         <Typography variant="h6" component="div" gutterBottom>
-                          {receipt.title}
+                          {receipt.receipt_metadata.description || `Transaction Receipt`}
                         </Typography>
                         <Chip
-                          label={receipt.status === 'minted' ? 'Minted' : 'Pending'}
-                          color={receipt.status === 'minted' ? 'success' : 'warning'}
+                          label="Minted"
+                          color="success"
                           size="small"
                           sx={{ ml: 1 }}
                         />
@@ -211,7 +218,7 @@ const NFTReceipts: React.FC = () => {
                           Amount
                         </Typography>
                         <Typography variant="body1" fontWeight="medium">
-                          {receipt.amount.toFixed(2)} Tokens
+                          ${receipt.receipt_metadata.amount.toFixed(2)}
                         </Typography>
                       </Box>
                       
@@ -220,7 +227,7 @@ const NFTReceipts: React.FC = () => {
                           Date
                         </Typography>
                         <Typography variant="body1" fontWeight="medium">
-                          {formatDate(receipt.date)}
+                          {formatDate(receipt.receipt_metadata.timestamp)}
                         </Typography>
                       </Box>
                       
@@ -229,7 +236,7 @@ const NFTReceipts: React.FC = () => {
                           Recipient
                         </Typography>
                         <Typography variant="body1" fontWeight="medium" noWrap>
-                          {receipt.recipient}
+                          {formatPrincipalId(receipt.receipt_metadata.recipient)}
                         </Typography>
                       </Box>
                       
@@ -239,6 +246,7 @@ const NFTReceipts: React.FC = () => {
                           color="primary"
                           fullWidth
                           sx={{ borderRadius: 2 }}
+                          onClick={() => window.open(`/nft-receipts/${receipt.id}`, '_blank')}
                         >
                           View Details
                         </Button>

@@ -1,25 +1,29 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { AuthClient } from '@dfinity/auth-client';
-import { Principal } from '@dfinity/principal';
 import { usePayChainStore } from '../store/paychainStore';
+import { Principal } from '@dfinity/principal';
 
 interface AuthContextType {
   isAuthenticated: boolean;
   principal: Principal | null;
-  login: () => Promise<void>;
-  logout: () => Promise<void>;
   loading: boolean;
   error: string | null;
+  logout: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const defaultContext: AuthContextType = {
+  isAuthenticated: false,
+  principal: null,
+  loading: true,
+  error: null,
+  logout: async () => {},
+};
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [principal, setPrincipal] = useState<Principal | null>(null);
+const AuthContext = createContext<AuthContextType>(defaultContext);
+
+export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { fetchUserProfile, fetchTransactions } = usePayChainStore();
+  const { isAuthenticated, user, initialize, logout } = usePayChainStore();
 
   useEffect(() => {
     checkAuth();
@@ -27,92 +31,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkAuth = async () => {
     try {
-      const authClient = await AuthClient.create();
-      const identity = authClient.getIdentity();
-      const userPrincipal = identity.getPrincipal();
-      // Check if the principal is anonymous (2vxsx-fae)
-      const isAuthed = userPrincipal.toText() !== '2vxsx-fae';
-      
-      setIsAuthenticated(isAuthed);
-      // Use type assertion to handle Principal type compatibility
-      setPrincipal(isAuthed ? (userPrincipal as any) : null);
-      
-      if (isAuthed) {
-        await fetchUserProfile();
-        await fetchTransactions();
-      }
+      setLoading(true);
+      await initialize();
     } catch (err) {
-      setError('Failed to check authentication status');
-      console.error('Auth check error:', err);
+      console.error('Auth check failed:', err);
+      setError('Authentication failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const login = async () => {
+  const handleLogout = async () => {
     try {
       setLoading(true);
-      setError(null);
-      
-      const authClient = await AuthClient.create();
-      await authClient.login({
-        identityProvider: 'https://identity.ic0.app',
-        onSuccess: () => {
-          const identity = authClient.getIdentity();
-          const userPrincipal = identity.getPrincipal();
-          setIsAuthenticated(true);
-          // Use type assertion to handle Principal type compatibility
-          setPrincipal(userPrincipal as any);
-          fetchUserProfile();
-          fetchTransactions();
-        },
-      });
+      await logout();
     } catch (err) {
-      setError('Failed to login');
-      console.error('Login error:', err);
+      console.error('Logout failed:', err);
+      setError('Logout failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
-  const logout = async () => {
-    try {
-      setLoading(true);
-      setError(null);
-      
-      const authClient = await AuthClient.create();
-      await authClient.logout();
-      
-      setIsAuthenticated(false);
-      setPrincipal(null);
-    } catch (err) {
-      setError('Failed to logout');
-      console.error('Logout error:', err);
-    } finally {
-      setLoading(false);
-    }
+  // Create a Principal from the user's principalId string if available
+  const principal = user?.principalId 
+    ? Principal.fromText(user.principalId) 
+    : null;
+
+  const value = {
+    isAuthenticated,
+    principal,
+    loading,
+    error,
+    logout: handleLogout,
   };
 
   return (
-    <AuthContext.Provider
-      value={{
-        isAuthenticated,
-        principal,
-        login,
-        logout,
-        loading,
-        error,
-      }}
-    >
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );
-}
+};
 
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-} 
+export const useAuth = () => useContext(AuthContext); 

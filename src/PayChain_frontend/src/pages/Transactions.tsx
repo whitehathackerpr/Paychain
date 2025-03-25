@@ -50,10 +50,10 @@ const Transactions: React.FC = () => {
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(tx => 
-        tx.id.toLowerCase().includes(term) ||
-        tx.fromAddress.toLowerCase().includes(term) ||
-        tx.toAddress.toLowerCase().includes(term) ||
-        (tx.description && tx.description.toLowerCase().includes(term))
+        (tx.id?.toLowerCase() || '').includes(term) ||
+        (tx.fromAddress?.toLowerCase() || '').includes(term) ||
+        (tx.toAddress?.toLowerCase() || '').includes(term) ||
+        ((tx.description || '').toLowerCase().includes(term))
       );
     }
     
@@ -87,7 +87,8 @@ const Transactions: React.FC = () => {
   };
 
   // Format address for display
-  const formatAddress = (address: string) => {
+  const formatAddress = (address: string | undefined | null): string => {
+    if (!address) return 'Unknown';
     if (address.length <= 12) return address;
     return `${address.substring(0, 6)}...${address.substring(address.length - 6)}`;
   };
