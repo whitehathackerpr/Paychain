@@ -33,6 +33,7 @@ The FastAPI backend provides a modern, high-performance API with:
 - Pydantic for data validation
 - Comprehensive API documentation (Swagger UI)
 - Easy testing and extensibility
+ ![Dashboard Preview](/docs/api.png)
 
 ### Motoko Backend (Internet Computer)
 
