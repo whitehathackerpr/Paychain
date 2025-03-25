@@ -3,25 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "dependencies": {
-    "@emotion/react": "^11.11.3",
-    "@emotion/styled": "^11.11.0",
-    "@mui/icons-material": "^5.15.10",
-    "@mui/material": "^5.15.10",
-    "@mui/x-date-pickers": "^6.19.4",
-    "@testing-library/jest-dom": "^5.17.0",
-    "@testing-library/react": "^13.4.0",
-    "@testing-library/user-event": "^13.5.0",
-    "@types/jest": "^27.5.2",
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/icons-material": "^6.4.8",
+    "@mui/material": "^6.4.8",
+    "@mui/x-date-pickers": "^7.28.0",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.2.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest": "^29.5.14",
+    "@types/recharts": "^1.8.29",
     "axios": "^1.8.4",
-    "date-fns": "^3.3.1",
-    "framer-motion": "^11.0.3",
+    "date-fns": "^4.1.0",
+    "framer-motion": "^12.5.0",
+    "nth-check": "^2.1.1",
+    "postcss": "^8.4.31",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
-    "react-router-dom": "^6.22.1",
+    "react-router-dom": "^7.4.0",
     "react-scripts": "5.0.1",
-    "recharts": "^2.12.0",
-    "typescript": "^4.9.5",
-    "web-vitals": "^2.1.4"
+    "recharts": "^2.15.1",
+    "typescript": "^5.8.2",
+    "web-vitals": "^4.2.4"
   },
   "scripts": {
     "start": "react-scripts start",
@@ -48,10 +51,10 @@
     ]
   },
   "devDependencies": {
-    "@types/axios": "^0.9.36",
-    "@types/node": "^22.13.12",
-    "@types/react": "^19.0.12",
-    "@types/react-dom": "^19.0.4",
+    "@types/axios": "^0.14.4",
+    "@types/node": "^22.13.13",
+    "@types/react": "^18.0.38",
+    "@types/react-dom": "^18.0.14",
     "notistack": "^3.0.2"
   }
 }
