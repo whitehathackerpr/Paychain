@@ -2,6 +2,14 @@
 
 PayChain is a modern decentralized payment application with a beautiful Web3 UI. The application supports both Motoko (Internet Computer) and FastAPI (Python) backends, allowing flexible deployment options.
 
+<div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
+  <img src="/docs/1.png" alt="Screenshot 1" width="200"/>
+  <img src="/docs/2.png" alt="Screenshot 2" width="200"/>
+  <img src="/docs/3.png" alt="Screenshot 3" width="200"/>
+  <img src="/docs/4.png" alt="Screenshot 4" width="200"/>
+</div>
+
+
 ## Project Structure
 
 ```
