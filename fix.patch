@@ -1,0 +1,87 @@
+// Fix the ScheduleInterval type
+type ScheduleInterval = {
+    intervalType: IntervalType;  // Changed from ScheduleIntervaltype
+    value: Nat;
+    startTime: ?Nat; // Hour of day (0-23)
+    endTime: ?Nat;   // Hour of day (0-23)
+};
+
+// Fix the TemplateCondition type
+type TemplateCondition = {
+    conditionType: ConditionType;  // Changed from TemplateConditiontype
+    operator: Operator;
+    value: Text;
+};
+
+// Add missing checkUserStatus function
+private func checkUserStatus(user: Principal) : async Result.Result<(), Text> {
+    switch (userBalances.get(user)) {
+        case (?balance) {
+            if (balance.isBlocked) {
+                switch (balance.blockExpiry) {
+                    case (?expiry) {
+                        if (Time.now() >= expiry) {
+                            // Block has expired, update user status
+                            let updatedBalance = {
+                                balance with
+                                isBlocked = false;
+                                blockReason = null;
+                                blockExpiry = null;
+                            };
+                            userBalances.put(user, updatedBalance);
+                            #ok()
+                        } else {
+                            #err("User is blocked: " # Option.get(balance.blockReason, "No reason provided"))
+                        }
+                    };
+                    case null {
+                        #err("User is blocked: " # Option.get(balance.blockReason, "No reason provided"))
+                    };
+                }
+            } else {
+                #ok()
+            }
+        };
+        case null { #ok() }; // New users are not blocked
+    }
+};
+
+// Add missing checkFraudDetection function
+private func checkFraudDetection(user: Principal, amount: Amount) : async Result.Result<(), Text> {
+    switch (userBalances.get(user)) {
+        case (?balance) {
+            // Check if amount exceeds user's transaction limits
+            if (amount > balance.transactionLimits.perTransactionLimit) {
+                return #err("Amount exceeds transaction limit");
+            };
+
+            // Check for unusual patterns
+            if (await hasUnusualPattern(user, amount)) {
+                return #err("Unusual transaction pattern detected");
+            };
+
+            // Check user's risk score
+            if (balance.riskScore >= MAX_RISK_SCORE) {
+                return #err("User risk score too high");
+            };
+
+            #ok()
+        };
+        case null { #ok() }; // New users pass fraud detection
+    }
+};
+
+// Add missing updateUserRiskScore function
+private func updateUserRiskScore(user: Principal, increment: Nat) : async () {
+    switch (userBalances.get(user)) {
+        case (?balance) {
+            let newScore = Nat.min(balance.riskScore + increment, MAX_RISK_SCORE);
+            let updatedBalance = {
+                balance with
+                riskScore = newScore;
+            };
+            userBalances.put(user, updatedBalance);
+        };
+        case null { /* Do nothing for non-existent users */ };
+    }
+};
